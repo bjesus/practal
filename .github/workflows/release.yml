@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-arch-binary:
+    name: Build Linux x86_64 binary (Arch Linux)
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel \
+            git \
+            meson \
+            ninja \
+            rust \
+            blueprint-compiler \
+            dart-sass \
+            desktop-file-utils \
+            appstream \
+            gobject-introspection \
+            gtk4 \
+            libadwaita \
+            gstreamer \
+            gst-plugins-base-libs \
+            gst-plugins-bad-libs \
+            gtksourceview5 \
+            glycin \
+            glycin-gtk4 \
+            libspelling \
+            libwebp \
+            libshumate \
+            sqlite \
+            xdg-desktop-portal
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure and build with Meson
+        run: |
+          meson setup _build --prefix=/usr --buildtype=release
+          meson compile -C _build
+          DESTDIR="$PWD/_pkg" meson install -C _build --no-rebuild
+
+      - name: Package release tarball
+        run: |
+          tar --zstd -cf practal-linux-x86_64.tar.zst -C _pkg usr
+          sha256sum practal-linux-x86_64.tar.zst > practal-linux-x86_64.tar.zst.sha256
+
+      - name: Upload release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            practal-linux-x86_64.tar.zst
+            practal-linux-x86_64.tar.zst.sha256
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: practal-linux-x86_64
+          path: |
+            practal-linux-x86_64.tar.zst
+            practal-linux-x86_64.tar.zst.sha256
