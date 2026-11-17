@@ -194,6 +194,58 @@ sidebar {
       min-width: 24px;
     }
   }
+
+  .pinned-favorites {
+    padding: 6px 8px;
+
+    flowboxchild {
+      padding: 0;
+      border-radius: 12px;
+    }
+
+    .pinned-favorite-button {
+      padding: 6px;
+      border-radius: 12px;
+      min-width: 0;
+      min-height: 0;
+
+      &.selected {
+        background-color: color-mix(in srgb, currentColor 10%, transparent);
+      }
+
+      .pinned-favorite-avatar {
+        border-radius: 9999px;
+
+        &.unread {
+          outline: 2px solid var(--accent-color);
+          outline-offset: 2px;
+        }
+      }
+
+      .pinned-badge {
+        font-weight: bold;
+        font-size: 0.7em;
+        border-radius: 9999px;
+        min-width: 8px;
+        min-height: 8px;
+        padding: 2px 5px;
+        color: currentColor;
+        background-color: color-mix(in srgb, currentColor 18%, var(--view-bg-color));
+
+        &.highlight {
+          color: var(--accent-fg-color);
+          background-color: var(--accent-bg-color);
+        }
+      }
+
+      .pinned-unread-dot {
+        min-width: 8px;
+        min-height: 8px;
+        border-radius: 9999px;
+        background-color: var(--accent-bg-color);
+      }
+    }
+  }
 }
 
 // Invite

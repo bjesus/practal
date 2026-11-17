@@ -1,0 +1,47 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $InterfacePage: Adw.PreferencesPage {
+  icon-name: "applications-graphics-symbolic";
+  title: _("Interface");
+  name: "interface";
+
+  Adw.PreferencesGroup {
+    title: _("Room Names");
+    description: _("Control how room names are computed when the room does not have an explicit title.");
+
+    Adw.SwitchRow hide_bots_from_room_names_row {
+      selectable: false;
+      title: _("Hide Bots from Room Names");
+      subtitle: _(
+        "Exclude members identified as bots from computed room names, reducing names like \"Person, and 2 others\" to just \"Person\"."
+      );
+    }
+
+    Adw.EntryRow bot_filter_keyword_row {
+      title: _("Bot Filter Keyword");
+      show-apply-button: true;
+      sensitive: bind hide_bots_from_room_names_row.active;
+    }
+  }
+
+  Adw.PreferencesGroup {
+    title: _("Sidebar");
+
+    Adw.SwitchRow pin_favorites_row {
+      selectable: false;
+      title: _("Pin Favorites as Icons");
+      subtitle: _("Show favorite rooms as a compact row of icons at the top of the sidebar.");
+    }
+  }
+
+  Adw.PreferencesGroup {
+    title: _("Messages");
+
+    Adw.SwitchRow use_chat_bubbles_row {
+      selectable: false;
+      title: _("Chat Bubbles");
+      subtitle: _("Display your messages on the right and others' messages on the left inside colored bubbles.");
+    }
+  }
+}

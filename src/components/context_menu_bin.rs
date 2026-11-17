@@ -207,7 +207,8 @@ glib::wrapper! {
 }
 
 impl ContextMenuBin {
-    fn open_menu_at(&self, x: i32, y: i32) {
+    /// Open the context menu at the given coordinates.
+    pub(crate) fn open_menu_at(&self, x: i32, y: i32) {
         if !self.has_context_menu() {
             return;
         }

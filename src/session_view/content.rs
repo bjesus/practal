@@ -257,6 +257,9 @@ mod imp {
                         self.set_visible_page(ContentPage::Invite);
                     }
                     _ => {
+                        if let Some(session) = room.session() {
+                            session.subscribe_to_room(room.room_id());
+                        }
                         self.room_history.set_timeline(Some(room.live_timeline()));
                         self.set_visible_page(ContentPage::RoomHistory);
                     }

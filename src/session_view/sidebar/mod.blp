@@ -17,6 +17,11 @@ menu primary_menu {
       label: _("_Join Room…");
       action: "session.join-room";
     }
+
+    item {
+      label: _("_Explore Rooms");
+      action: "session.show-explore";
+    }
   }
 
   section {
@@ -26,7 +31,7 @@ menu primary_menu {
     }
 
     item {
-      label: _("_About Fractal");
+      label: _("_About Practal");
       action: "app.about";
     }
   }
@@ -177,6 +182,24 @@ template $Sidebar: Adw.NavigationPage {
         button-clicked => $fix_security_issue() swapped;
       }
 
+      Gtk.FlowBox pinned_favorites_box {
+        visible: false;
+        homogeneous: true;
+        selection-mode: none;
+        max-children-per-line: 5;
+        min-children-per-line: 1;
+        row-spacing: 4;
+        column-spacing: 4;
+
+        styles [
+          "pinned-favorites",
+        ]
+      }
+
+      Gtk.Separator pinned_favorites_separator {
+        visible: bind pinned_favorites_box.visible;
+      }
+
       Stack room_stack {
         transition-type: crossfade;
 
@@ -217,6 +240,37 @@ template $Sidebar: Adw.NavigationPage {
             };
           };
         }
+      }
+
+      Adw.ViewStack room_tabs_stack {
+        visible: false;
+
+        Adw.ViewStackPage normal_tab_page {
+          name: "normal";
+          title: _("Rooms");
+          child: Gtk.Box {};
+        }
+
+        Adw.ViewStackPage low_priority_tab_page {
+          name: "low-priority";
+          title: _("Low Priority");
+          child: Gtk.Box {};
+        }
+      }
+
+      Gtk.Separator room_tabs_separator {
+        visible: bind room_tabs_switcher.visible;
+      }
+
+      Adw.InlineViewSwitcher room_tabs_switcher {
+        visible: false;
+        stack: room_tabs_stack;
+        display-mode: labels;
+        homogeneous: true;
+        margin-top: 6;
+        margin-bottom: 6;
+        margin-start: 8;
+        margin-end: 8;
       }
     };
   }

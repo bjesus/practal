@@ -1,21 +1,32 @@
-[![Our chat room](https://img.shields.io/matrix/fractal-gtk:matrix.org?color=blue&label=%23fractal%3Agnome.org&logo=matrix)](https://matrix.to/#/#fractal:gnome.org)
-[![Our Gitlab project](https://img.shields.io/badge/gitlab.gnome.org%2F-World%2FFractal-green?logo=gitlab)](https://gitlab.gnome.org/World/fractal/)
-[![Our documentation](https://img.shields.io/badge/%F0%9F%95%AE-Docs-B7410E?logo=rust)](https://world.pages.gitlab.gnome.org/fractal/)
-[![Official package](https://img.shields.io/flathub/downloads/org.gnome.Fractal?logo=flathub)](https://flathub.org/apps/org.gnome.Fractal)
-
 <div align="center">
 
 <img
-    src="https://gitlab.gnome.org/World/fractal/-/raw/main/data/icons/org.gnome.Fractal.svg"
+    src="data/icons/org.gnome.Fractal.svg"
     alt=""
 />
 
-# Fractal
+# Practal
 
 </div>
 
-Fractal is a Matrix messaging app for GNOME written in Rust. Its interface is optimized for
-collaboration in large groups, such as free software projects, and will fit all screens, big or small.
+**Practal** is a fork of [Fractal](https://gitlab.gnome.org/World/fractal/), the Matrix messaging app for GNOME written in Rust.
+
+One of the main differences is that Practal takes a more practical and pragmatic approach to AI-assisted development (unlike upstream's [`AGENTS.md`](https://gitlab.gnome.org/World/fractal/-/blob/main/AGENTS.md)), allowing faster development without burning tokens on unnecessary ceremony.
+
+## Added Features in Practal
+
+Compared to upstream Fractal, Practal adds:
+
+* **Beeper Bridge Support**: Automatic Beeper bridge detection, bridge-aware room handling, and optional hiding of bridge bots from computed room names.
+* **Pinned Favorites & Tabbed Sidebar**: Pin favorite rooms as a compact icon bar at the top of the sidebar (with unread indicator rings), and switch between **Rooms** and **Low Priority** via bottom tabs with preserved scroll position.
+* **In-Chat Search**: Search messages within a room (`Ctrl+F`) with live background history pagination and next/previous match navigation.
+* **Chat Bubbles**: Optional chat bubble layout (your messages on the right, others on the left inside tinted bubbles).
+* **Selectable Message Text**: Select and copy portions of message text in both normal and bubble modes while preserving the message right-click menu.
+* **Quick Search & Composer Polish**: `Ctrl+K` room search automatically clears and closes when a chat is selected, plus a dedicated **Interface** tab in Account Settings.
+
+---
+
+> Below is the upstream Fractal documentation for build, runtime dependencies, and background.
 
 <div align="center">
 <img

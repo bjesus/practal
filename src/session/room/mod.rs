@@ -166,7 +166,7 @@ mod imp {
         #[property(get)]
         direct_member: RefCell<Option<Member>>,
         /// The live timeline of this room.
-        #[property(get)]
+        #[property(get = Self::live_timeline_owned)]
         live_timeline: OnceCell<Timeline>,
         /// The timestamp of the room's latest activity.
         ///
@@ -268,7 +268,6 @@ mod imp {
                 .set(matrix_room)
                 .expect("matrix room is uninitialized");
 
-            self.init_live_timeline();
             self.aliases.init(&obj);
             self.load_predecessor();
             self.watch_members();
@@ -288,19 +287,6 @@ mod imp {
 
                         imp.is_room_info_initialized.set(true);
                         imp.obj().notify_is_room_info_initialized();
-
-                        // Only initialize the following after we have loaded the category of the
-                        // room since we only load them for some categories.
-
-                        // Preload the timeline of rooms that the user is likely to visit and for
-                        // which we offer to show the timeline.
-                        let preload = matches!(
-                            imp.category.get(),
-                            RoomCategory::Favorite
-                                | RoomCategory::Normal
-                                | RoomCategory::LowPriority
-                        );
-                        imp.live_timeline().set_preload(preload);
 
                         imp.permissions.init(&imp.obj()).await;
                     }
@@ -368,7 +354,7 @@ mod imp {
         }
 
         /// Load the display name from the SDK.
-        async fn update_display_name(&self) {
+        pub(super) async fn update_display_name(&self) {
             let matrix_room = self.matrix_room().clone();
             let handle = spawn_tokio!(async move { matrix_room.display_name().await });
 
@@ -382,9 +368,30 @@ mod imp {
 
             let mut display_name = if let Some(sdk_display_name) = sdk_display_name {
                 match sdk_display_name {
-                    RoomDisplayName::Named(s)
-                    | RoomDisplayName::Calculated(s)
-                    | RoomDisplayName::Aliased(s) => s,
+                    RoomDisplayName::Named(s) => {
+                        if self.should_filter_bots() && Self::is_phone_number(&s) {
+                            match self.compute_display_name_without_bots(false).await {
+                                Some(name) => name,
+                                None => self
+                                    .compute_display_name_without_bots(true)
+                                    .await
+                                    .unwrap_or(s),
+                            }
+                        } else {
+                            s
+                        }
+                    }
+                    RoomDisplayName::Aliased(s) => s,
+                    RoomDisplayName::Calculated(s) => {
+                        // If bot filtering is enabled, recompute from members.
+                        if self.should_filter_bots() {
+                            self.compute_display_name_without_bots(false)
+                                .await
+                                .unwrap_or(s)
+                        } else {
+                            s
+                        }
+                    }
                     RoomDisplayName::EmptyWas(s) => {
                         // Translators: This is the name of a room that is empty but had another
                         // user before. Do NOT translate the content between
@@ -406,6 +413,102 @@ mod imp {
             }
 
             self.obj().set_display_name(display_name);
+        }
+
+        /// Whether the given string looks like a phone number (e.g.
+        /// `+447768479866`).
+        fn is_phone_number(s: &str) -> bool {
+            let trimmed = s.trim();
+            let Some(rest) = trimmed.strip_prefix('+') else {
+                return false;
+            };
+            let mut digits = 0usize;
+            for c in rest.chars() {
+                if c.is_ascii_digit() {
+                    digits += 1;
+                } else if !matches!(c, ' ' | '-' | '(' | ')') {
+                    return false;
+                }
+            }
+            digits >= 6
+        }
+
+        /// Whether the bot-filtering display name feature is enabled.
+        fn should_filter_bots(&self) -> bool {
+            self.session
+                .upgrade()
+                .is_some_and(|session| session.settings().hide_bots_from_room_names())
+        }
+
+        /// Check if the given display name contains the bot filter keyword as a
+        /// whole word (case-insensitive).
+        fn is_bot_name(display_name: &str, keyword: &str) -> bool {
+            if keyword.is_empty() {
+                return false;
+            }
+
+            let name_lower = display_name.to_lowercase();
+            let keyword_lower = keyword.to_lowercase();
+
+            // Split the name into words by whitespace and common punctuation,
+            // and check whether any word matches exactly.
+            name_lower
+                .split(|c: char| {
+                    c.is_whitespace() || matches!(c, '(' | ')' | '[' | ']' | ',' | ';' | ':')
+                })
+                .any(|word| word == keyword_lower)
+        }
+
+        /// Recompute the display name by fetching room members and excluding
+        /// the own user and members whose name matches the bot keyword.
+        async fn compute_display_name_without_bots(&self, sync_members: bool) -> Option<String> {
+            let session = self.session.upgrade()?;
+            let keyword = session.settings().bot_filter_keyword();
+            let matrix_room = self.matrix_room().clone();
+            let own_user_id = matrix_room.own_user_id().to_owned();
+
+            let handle = spawn_tokio!(async move {
+                if sync_members {
+                    matrix_room.members(RoomMemberships::ACTIVE).await
+                } else {
+                    matrix_room.members_no_sync(RoomMemberships::ACTIVE).await
+                }
+            });
+
+            let members = handle.await.expect("task was not aborted").ok()?;
+
+            // Collect hero names: exclude own user and bots.
+            let mut heroes: Vec<String> = members
+                .iter()
+                .filter(|m| m.user_id() != own_user_id)
+                .filter(|m| !Self::is_bot_name(m.name(), &keyword))
+                .map(|m| m.name().to_owned())
+                .collect();
+
+            heroes.sort_unstable();
+
+            // Count non-bot, non-self members.
+            let total_non_bot = heroes.len();
+
+            // Take up to 5 heroes (matching the SDK's NUM_HEROES).
+            let display_heroes: Vec<&str> = heroes.iter().take(5).map(String::as_str).collect();
+            let num_heroes = display_heroes.len();
+
+            if total_non_bot == 0 {
+                return None;
+            }
+
+            let name = if num_heroes >= total_non_bot {
+                display_heroes.join(", ")
+            } else {
+                format!(
+                    "{}, and {} others",
+                    display_heroes.join(", "),
+                    total_non_bot - num_heroes
+                )
+            };
+
+            if name.is_empty() { None } else { Some(name) }
         }
 
         /// Set whether this room has an avatar explicitly set.
@@ -623,6 +726,12 @@ mod imp {
         /// Set whether this room is a direct chat.
         async fn set_is_direct(&self, is_direct: bool) {
             if self.is_direct.get() == is_direct {
+                if !is_direct
+                    && self.should_filter_bots()
+                    && self.matrix_room().avatar_url().is_none()
+                {
+                    self.update_direct_member().await;
+                }
                 return;
             }
 
@@ -680,6 +789,45 @@ mod imp {
                 self.is_tombstoned.set(true);
                 obj.notify_is_tombstoned();
             }
+        }
+
+        /// Update the latest activity timestamp from raw sync timeline events
+        /// when the live timeline has not been initialized yet.
+        pub(super) fn update_latest_activity_from_sync(
+            &self,
+            events: &[matrix_sdk::deserialized_responses::TimelineEvent],
+        ) {
+            if self.live_timeline.get().is_some() {
+                return;
+            }
+
+            let mut latest_activity = self.latest_activity.get();
+            for event in events.iter().rev() {
+                let raw = event.raw();
+                let is_state = raw
+                    .get_field::<serde_json::Value>("state_key")
+                    .ok()
+                    .flatten()
+                    .is_some();
+                if is_state {
+                    continue;
+                }
+                let event_type = raw.get_field::<String>("type").ok().flatten();
+                if matches!(
+                    event_type.as_deref(),
+                    Some("m.reaction" | "m.room.redaction")
+                ) {
+                    continue;
+                }
+                if let Ok(Some(ts)) =
+                    raw.get_field::<ruma::MilliSecondsSinceUnixEpoch>("origin_server_ts")
+                {
+                    latest_activity = latest_activity.max(ts.get().into());
+                    break;
+                }
+            }
+
+            self.set_latest_activity(latest_activity);
         }
 
         /// Update the successor of this room.
@@ -1038,9 +1186,10 @@ mod imp {
         }
 
         /// The ID of the other user, if this is a direct chat and there is only
-        /// one other user.
+        /// one other user (excluding bots when bot filtering is enabled).
         async fn direct_user_id(&self) -> Option<OwnedUserId> {
             let matrix_room = self.matrix_room();
+            let filter_bots = self.should_filter_bots();
 
             // Check if the room is direct and if there is only one target.
             let mut direct_targets = matrix_room
@@ -1048,64 +1197,107 @@ mod imp {
                 .into_iter()
                 .filter_map(|id| OwnedUserId::try_from(id).ok());
 
-            let Some(direct_target_user_id) = direct_targets.next() else {
-                // It is not a direct chat.
-                return None;
-            };
+            let direct_target_user_id = direct_targets.next();
 
             if direct_targets.next().is_some() {
                 // It is a direct chat with several users.
                 return None;
             }
 
-            // Check that there are still at most 2 members.
-            let members_count = matrix_room.active_members_count();
+            if !filter_bots {
+                let direct_target_user_id = direct_target_user_id?;
 
-            if members_count > 2 {
-                // We only want a 1-to-1 room. The count might be 1 if the other user left, but
-                // we can reinvite them.
+                // Check that there are still at most 2 members.
+                let members_count = matrix_room.active_members_count();
+
+                if members_count > 2 {
+                    // We only want a 1-to-1 room. The count might be 1 if the other user left, but
+                    // we can reinvite them.
+                    return None;
+                }
+
+                // Check that the members count is correct. It might not be correct if the room
+                // was just joined, or if it is in an invited state.
+                let matrix_room_clone = matrix_room.clone();
+                let handle = spawn_tokio!(async move {
+                    matrix_room_clone.members(RoomMemberships::ACTIVE).await
+                });
+
+                let members = match handle.await.expect("task was not aborted") {
+                    Ok(m) => m,
+                    Err(error) => {
+                        error!("Could not load room members: {error}");
+                        vec![]
+                    }
+                };
+
+                let members_count = members_count.max(members.len() as u64);
+                if members_count > 2 {
+                    // Same as before.
+                    return None;
+                }
+
+                let own_user_id = matrix_room.own_user_id();
+                // Get the other member from the list.
+                for member in members {
+                    let user_id = member.user_id();
+
+                    if user_id != direct_target_user_id && user_id != own_user_id {
+                        // There is a non-direct member.
+                        return None;
+                    }
+                }
+
+                return Some(direct_target_user_id);
+            }
+
+            // When bot filtering is enabled, allow rooms without an explicit
+            // avatar that have at most one non-bot other member.
+            if direct_target_user_id.is_none() && matrix_room.avatar_url().is_some() {
                 return None;
             }
 
-            // Check that the members count is correct. It might not be correct if the room
-            // was just joined, or if it is in an invited state.
+            let session = self.session.upgrade()?;
+            let keyword = session.settings().bot_filter_keyword();
             let matrix_room_clone = matrix_room.clone();
-            let handle =
-                spawn_tokio!(
-                    async move { matrix_room_clone.members(RoomMemberships::ACTIVE).await }
-                );
+            let handle = spawn_tokio!(async move {
+                matrix_room_clone
+                    .members_no_sync(RoomMemberships::ACTIVE)
+                    .await
+            });
 
             let members = match handle.await.expect("task was not aborted") {
                 Ok(m) => m,
                 Err(error) => {
                     error!("Could not load room members: {error}");
-                    vec![]
+                    return direct_target_user_id;
                 }
             };
 
-            let members_count = members_count.max(members.len() as u64);
-            if members_count > 2 {
-                // Same as before.
-                return None;
-            }
-
             let own_user_id = matrix_room.own_user_id();
-            // Get the other member from the list.
-            for member in members {
-                let user_id = member.user_id();
+            let non_bot_others: Vec<OwnedUserId> = members
+                .into_iter()
+                .filter(|m| m.user_id() != own_user_id)
+                .filter(|m| !Self::is_bot_name(m.name(), &keyword))
+                .map(|m| m.user_id().to_owned())
+                .collect();
 
-                if user_id != direct_target_user_id && user_id != own_user_id {
-                    // There is a non-direct member.
-                    return None;
+            if let Some(target) = direct_target_user_id {
+                if non_bot_others.iter().all(|id| *id == target) {
+                    Some(target)
+                } else {
+                    None
                 }
+            } else if non_bot_others.len() == 1 {
+                non_bot_others.into_iter().next()
+            } else {
+                None
             }
-
-            Some(direct_target_user_id)
         }
 
         /// Update the other member of the room, if this room is a direct chat
         /// and there is only one other member.
-        async fn update_direct_member(&self) {
+        pub(super) async fn update_direct_member(&self) {
             let Some(direct_user_id) = self.direct_user_id().await else {
                 self.set_direct_member(None);
                 return;
@@ -1144,28 +1336,38 @@ mod imp {
             self.set_direct_member(Some(direct_member));
         }
 
-        /// Initialize the live timeline of this room.
-        fn init_live_timeline(&self) {
-            let timeline = self
-                .live_timeline
-                .get_or_init(|| Timeline::new(&self.obj()));
-
-            timeline.connect_read_change_trigger(clone!(
-                #[weak(rename_to = imp)]
-                self,
-                move |_| {
-                    spawn!(glib::Priority::DEFAULT_IDLE, async move {
-                        imp.handle_read_change_trigger().await;
-                    });
-                }
-            ));
+        /// The live timeline of this room, initialized lazily on first access.
+        fn live_timeline_owned(&self) -> Timeline {
+            self.live_timeline().clone()
         }
 
-        /// The live timeline of this room.
+        /// The live timeline of this room, initialized lazily on first access.
         fn live_timeline(&self) -> &Timeline {
-            self.live_timeline
-                .get()
-                .expect("live timeline is initialized")
+            let mut initialized = false;
+            let timeline = self.live_timeline.get_or_init(|| {
+                initialized = true;
+                Timeline::new(&self.obj())
+            });
+
+            if initialized {
+                timeline.connect_read_change_trigger(clone!(
+                    #[weak(rename_to = imp)]
+                    self,
+                    move |_| {
+                        spawn!(glib::Priority::DEFAULT_IDLE, async move {
+                            imp.handle_read_change_trigger().await;
+                        });
+                    }
+                ));
+
+                let preload = matches!(
+                    self.category.get(),
+                    RoomCategory::Favorite | RoomCategory::Normal | RoomCategory::LowPriority
+                );
+                timeline.set_preload(preload);
+            }
+
+            timeline
         }
 
         /// Set the timestamp of the room's latest possibly unread event.
@@ -1497,21 +1699,42 @@ mod imp {
         }
 
         /// Update this room with the given SDK room info.
+        ///
+        /// Property change notifications are frozen during the synchronous
+        /// updates and emitted as a single batch afterwards, reducing
+        /// cascading filter/sort re-evaluations in the sidebar model chain.
         async fn update_with_room_info(&self, room_info: RoomInfo) {
-            self.aliases.update();
-            self.update_name();
+            {
+                let _guard = self.obj().freeze_notify();
+
+                self.aliases.update();
+                self.update_name();
+                self.update_avatar();
+                self.update_topic();
+                self.update_tombstone();
+                self.set_joined_members_count(room_info.joined_members_count());
+                self.join_rule.update(room_info.join_rule());
+                self.update_guests_allowed();
+                self.update_history_visibility();
+            }
+
             self.update_display_name().await;
-            self.update_avatar();
-            self.update_topic();
             self.update_category().await;
             self.update_is_direct().await;
             self.update_is_marked_unread().await;
-            self.update_tombstone();
-            self.set_joined_members_count(room_info.joined_members_count());
             self.update_is_encrypted().await;
-            self.join_rule.update(room_info.join_rule());
-            self.update_guests_allowed();
-            self.update_history_visibility();
+
+            if self.live_timeline.get().is_none() {
+                let matrix_room = self.matrix_room();
+                if let Some(recency_stamp) = matrix_room.recency_stamp() {
+                    self.set_latest_activity(u64::from(recency_stamp));
+                }
+                let is_unread = self.is_marked_unread.get()
+                    || matrix_room.num_unread_messages() > 0
+                    || matrix_room.unread_notification_counts().notification_count > 0;
+                self.set_is_read(!is_unread);
+                self.update_highlight();
+            }
         }
 
         /// Handle changes in the ambiguity of members display names.
@@ -1731,6 +1954,15 @@ impl Room {
     /// The room API of the SDK.
     pub(crate) fn matrix_room(&self) -> &MatrixRoom {
         self.imp().matrix_room()
+    }
+
+    /// Refresh the display name and direct member avatar of this room.
+    ///
+    /// This is useful when display name computation settings (like bot
+    /// filtering) change.
+    pub(crate) async fn refresh_display_name(&self) {
+        self.imp().update_display_name().await;
+        self.imp().update_direct_member().await;
     }
 
     /// The ID of this room.
@@ -2244,6 +2476,15 @@ impl Room {
         }
 
         self.imp().set_latest_activity(latest_activity);
+    }
+
+    /// Update the latest activity timestamp from raw sync timeline events
+    /// when the live timeline has not been initialized yet.
+    pub(crate) fn update_latest_activity_from_sync(
+        &self,
+        events: &[matrix_sdk::deserialized_responses::TimelineEvent],
+    ) {
+        self.imp().update_latest_activity_from_sync(events);
     }
 
     /// Update the successor of this room.

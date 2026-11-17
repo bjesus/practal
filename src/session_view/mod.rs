@@ -26,8 +26,8 @@ use crate::{
     intent::SessionIntent,
     prelude::*,
     session::{
-        IdentityVerification, Room, RoomCategory, RoomList, Session, SidebarItemList,
-        SidebarListModel, VerificationKey,
+        IdentityVerification, Room, RoomCategory, RoomList, Session, SidebarIconItem,
+        SidebarIconItemType, SidebarItemList, SidebarListModel, VerificationKey,
     },
     utils::matrix::{MatrixEventIdUri, MatrixIdUri, MatrixRoomIdUri, VisualMediaMessage},
 };
@@ -129,6 +129,10 @@ mod imp {
             klass.install_action("session.join-room", None, |obj, _, _| {
                 obj.imp().preview_room(None);
             });
+
+            klass.install_action("session.show-explore", None, |obj, _, _| {
+                obj.imp().show_explore();
+            });
             klass.add_binding_action(
                 gdk::Key::L,
                 gdk::ModifierType::CONTROL_MASK,
@@ -209,6 +213,8 @@ mod imp {
                 move |content| {
                     let show_content = content.item().is_some();
                     imp.split_view.set_show_content(show_content);
+                    imp.sidebar
+                        .set_selected_room(content.item().and_downcast::<Room>().as_ref());
 
                     // Only grab focus for the sidebar here. We handle the other case in
                     // `Content::set_item()` directly, because we need to grab focus only
@@ -302,7 +308,19 @@ mod imp {
                 return;
             };
 
-            sidebar_list_model.selection_model().set_selected_item(item);
+            let selection_model = sidebar_list_model.selection_model();
+            selection_model.set_selected_item(item.clone());
+            if selection_model.selected_item() != item {
+                selection_model.set_selected_item(None::<glib::Object>);
+                self.content.set_item(item);
+            }
+        }
+
+        /// Show the Explore rooms view.
+        fn show_explore(&self) {
+            self.select_item(Some(
+                SidebarIconItem::new(SidebarIconItemType::Explore).upcast(),
+            ));
         }
 
         /// The currently selected item, if any.
@@ -320,6 +338,7 @@ mod imp {
             {
                 section.set_is_expanded(true);
             }
+            self.sidebar.select_tab_for_category(room.category());
 
             self.select_item(Some(room.upcast()));
 

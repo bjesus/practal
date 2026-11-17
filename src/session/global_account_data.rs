@@ -161,29 +161,30 @@ mod imp {
             let session_settings = self.session().settings();
             let mut stored_settings = session_settings.stored_settings();
 
-            if stored_settings.version != 0 {
-                // No migration to apply.
-                return;
+            if stored_settings.version == 0 {
+                // Align the account data with the stored settings.
+                let stored_media_previews_enabled = stored_settings
+                    .media_previews_enabled
+                    .take()
+                    .map_or(DEFAULT_MEDIA_PREVIEWS, |setting| setting.global.into());
+                let _ = self
+                    .set_media_previews_enabled(stored_media_previews_enabled)
+                    .await;
+
+                let stored_invite_avatars_enabled = stored_settings
+                    .invite_avatars_enabled
+                    .take()
+                    .unwrap_or(DEFAULT_INVITE_AVATARS_ENABLED);
+                let _ = self
+                    .set_invite_avatars_enabled(stored_invite_avatars_enabled)
+                    .await;
+
+                session_settings.apply_version_1_migration();
             }
 
-            // Align the account data with the stored settings.
-            let stored_media_previews_enabled = stored_settings
-                .media_previews_enabled
-                .take()
-                .map_or(DEFAULT_MEDIA_PREVIEWS, |setting| setting.global.into());
-            let _ = self
-                .set_media_previews_enabled(stored_media_previews_enabled)
-                .await;
-
-            let stored_invite_avatars_enabled = stored_settings
-                .invite_avatars_enabled
-                .take()
-                .unwrap_or(DEFAULT_INVITE_AVATARS_ENABLED);
-            let _ = self
-                .set_invite_avatars_enabled(stored_invite_avatars_enabled)
-                .await;
-
-            session_settings.apply_version_1_migration();
+            // Version 2 migration: no-op, new interface settings fields have
+            // serde defaults. Just bump the version number.
+            session_settings.apply_version_2_migration();
         }
 
         /// Set which rooms display media previews.

@@ -25,7 +25,7 @@ use super::{EventTimestamp, ReadReceiptsList};
 use crate::{
     components::UserProfileDialog,
     prelude::*,
-    session::{Event, EventHeaderState, Member},
+    session::{Event, EventHeaderState, Member, SessionSettings},
     utils::BoundObject,
 };
 
@@ -41,18 +41,25 @@ mod imp {
     #[properties(wrapper_type = super::MessageRow)]
     pub struct MessageRow {
         #[template_child]
+        grid: TemplateChild<gtk::Grid>,
+        #[template_child]
         avatar_button: TemplateChild<gtk::Button>,
         #[template_child]
         header: TemplateChild<gtk::Box>,
         #[template_child]
         display_name: TemplateChild<MessageSenderName>,
         #[template_child]
+        timestamp: TemplateChild<EventTimestamp>,
+        #[template_child]
         content: TemplateChild<MessageContent>,
         #[template_child]
         message_state: TemplateChild<MessageStateStack>,
         #[template_child]
         reactions: TemplateChild<MessageReactionList>,
+        #[template_child]
+        read_receipts: TemplateChild<ReadReceiptsList>,
         binding: RefCell<Option<glib::Binding>>,
+        settings_handler: RefCell<Option<(glib::WeakRef<SessionSettings>, glib::SignalHandlerId)>>,
         /// The event that is presented.
         #[property(get, set = Self::set_event, explicit_notify)]
         event: BoundObject<Event>,
@@ -114,6 +121,11 @@ mod imp {
             if let Some(binding) = self.binding.take() {
                 binding.unbind();
             }
+            if let Some((settings_ref, handler)) = self.settings_handler.take()
+                && let Some(settings) = settings_ref.upgrade()
+            {
+                settings.disconnect(handler);
+            }
         }
     }
 
@@ -130,6 +142,11 @@ mod imp {
             self.event.disconnect_signals();
             if let Some(binding) = self.binding.take() {
                 binding.unbind();
+            }
+            if let Some((settings_ref, handler)) = self.settings_handler.take()
+                && let Some(settings) = settings_ref.upgrade()
+            {
+                settings.disconnect(handler);
             }
 
             let sender = event.sender();
@@ -160,6 +177,19 @@ mod imp {
                 }
             ));
 
+            if let Some(session) = event.room().session() {
+                let settings = session.settings();
+                let settings_handler = settings.connect_use_chat_bubbles_notify(clone!(
+                    #[weak(rename_to = imp)]
+                    self,
+                    move |_| {
+                        imp.update_bubble_mode();
+                    }
+                ));
+                self.settings_handler
+                    .replace(Some((settings.downgrade(), settings_handler)));
+            }
+
             self.reactions
                 .set_reaction_list(&event.room().get_or_create_members(), &event.reactions());
             self.event
@@ -169,7 +199,7 @@ mod imp {
             obj.notify_sender();
 
             self.update_content();
-            self.update_header();
+            self.update_bubble_mode();
         }
 
         /// The sender of the event that is presented.
@@ -184,7 +214,13 @@ mod imp {
             };
 
             let header_state = event.header_state();
-            let avatar_name_visible = header_state == EventHeaderState::Full;
+            let use_bubbles = event
+                .room()
+                .session()
+                .is_some_and(|session| session.settings().use_chat_bubbles());
+            let is_own = event.sender_id() == *event.room().own_member().user_id();
+            let avatar_name_visible =
+                header_state == EventHeaderState::Full && !(use_bubbles && is_own);
             let header_visible = header_state != EventHeaderState::Hidden;
 
             self.avatar_button.set_visible(avatar_name_visible);
@@ -192,12 +228,61 @@ mod imp {
             self.header.set_visible(header_visible);
 
             if let Some(row) = self.obj().parent() {
-                if avatar_name_visible {
+                if header_state == EventHeaderState::Full {
                     row.add_css_class("has-avatar");
                 } else {
                     row.remove_css_class("has-avatar");
                 }
             }
+        }
+
+        /// Update layout and CSS classes for chat bubble mode.
+        fn update_bubble_mode(&self) {
+            let Some(event) = self.event.obj() else {
+                return;
+            };
+            let obj = self.obj();
+            let use_bubbles = event
+                .room()
+                .session()
+                .is_some_and(|session| session.settings().use_chat_bubbles());
+
+            if use_bubbles {
+                let is_own = event.sender_id() == *event.room().own_member().user_id();
+                let align = if is_own {
+                    gtk::Align::End
+                } else {
+                    gtk::Align::Start
+                };
+
+                obj.add_css_class("chat-bubble");
+                if is_own {
+                    obj.add_css_class("own");
+                } else {
+                    obj.remove_css_class("own");
+                }
+                self.content.add_css_class("bubble");
+
+                self.grid.set_halign(align);
+                self.content.set_hexpand(false);
+                self.content.set_halign(align);
+                self.reactions.set_halign(align);
+                self.read_receipts.set_halign(align);
+                self.timestamp.set_halign(align);
+            } else {
+                obj.remove_css_class("chat-bubble");
+                obj.remove_css_class("own");
+                self.content.remove_css_class("bubble");
+
+                self.grid.set_halign(gtk::Align::Fill);
+                self.content.set_hexpand(true);
+                self.content.set_halign(gtk::Align::Fill);
+                self.reactions.set_halign(gtk::Align::Fill);
+                self.read_receipts.set_halign(gtk::Align::Fill);
+                self.timestamp.set_halign(gtk::Align::Fill);
+            }
+
+            self.update_header();
         }
 
         /// Update the content for the current event.

@@ -4,12 +4,13 @@
 <component type="desktop-application">
   <id>@app-id@</id>
   <launchable type="desktop-id">@app-id@.desktop</launchable>
-  <name>Fractal</name>
-  <summary>Chat on Matrix</summary>
+  <name>Practal</name>
+  <summary>Chat on Matrix (Fractal fork)</summary>
   <description>
     <p>
-      Fractal is a Matrix messaging app for GNOME written in Rust. Its interface is optimized for
-      collaboration in large groups, such as free software projects, and will fit all screens, big or small.
+      Practal is a fork of Fractal, a Matrix messaging app for GNOME written in Rust, adding
+      Beeper bridge support, pinned favorites, tabbed sidebar sections, in-chat search, optional
+      chat bubbles, and selectable message text.
     </p>
     <p>Highlights:</p>
     <ul>

@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{fmt, sync::Arc, time::Duration};
 
 use futures_util::{StreamExt, lock::Mutex};
 use gettextrs::gettext;
@@ -6,6 +6,7 @@ use gtk::{gio, glib, glib::clone, prelude::*, subclass::prelude::*};
 use matrix_sdk::{
     Client, SessionChange, config::SyncSettings, media::MediaRetentionPolicy, sync::SyncResponse,
 };
+use matrix_sdk_ui::sync_service::{State as SyncServiceState, SyncService};
 use ruma::{
     api::client::{
         filter::{FilterDefinition, RoomFilter},
@@ -16,7 +17,7 @@ use ruma::{
 };
 use tokio::{task::AbortHandle, time::sleep};
 use tokio_stream::wrappers::BroadcastStream;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 mod global_account_data;
 mod ignored_users;
@@ -78,6 +79,16 @@ mod imp {
 
     use super::*;
 
+    /// Wrapper around `Arc<SyncService>` implementing `Debug`.
+    #[derive(Clone)]
+    pub(super) struct SyncServiceWrapper(pub(super) Arc<SyncService>);
+
+    impl fmt::Debug for SyncServiceWrapper {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_tuple("SyncService").finish_non_exhaustive()
+        }
+    }
+
     #[derive(Debug, Default, glib::Properties)]
     #[properties(wrapper_type = super::Session)]
     pub struct Session {
@@ -120,6 +131,9 @@ mod imp {
         remote_cache: OnceCell<RemoteCache>,
         session_changes_handle: RefCell<Option<AbortHandle>>,
         sync_handle: RefCell<Option<AbortHandle>>,
+        sync_service: RefCell<Option<SyncServiceWrapper>>,
+        room_updates_handle: RefCell<Option<AbortHandle>>,
+        sync_service_state_handle: RefCell<Option<AbortHandle>>,
         network_monitor_handler_id: RefCell<Option<glib::SignalHandlerId>>,
         homeserver_reachable_lock: Mutex<()>,
         homeserver_reachable_source: RefCell<Option<glib::SourceId>>,
@@ -152,9 +166,7 @@ mod imp {
                 handle.abort();
             }
 
-            if let Some(handle) = self.sync_handle.take() {
-                handle.abort();
-            }
+            self.stop_sync();
         }
     }
 
@@ -202,6 +214,28 @@ mod imp {
                     let obj = self.obj();
                     let item_list =
                         SidebarItemList::new(&RoomList::new(&obj), &VerificationList::new(&obj));
+
+                    // Refresh all room display names when bot-filtering
+                    // settings change.
+                    let settings = obj.settings();
+                    let refresh_display_names = clone!(
+                        #[weak]
+                        obj,
+                        move |_: &SessionSettings| {
+                            let room_list = obj.room_list();
+                            spawn!(clone!(
+                                #[weak]
+                                room_list,
+                                async move {
+                                    room_list.refresh_display_names().await;
+                                }
+                            ));
+                        }
+                    );
+                    settings
+                        .connect_hide_bots_from_room_names_notify(refresh_display_names.clone());
+                    settings.connect_bot_filter_keyword_notify(refresh_display_names);
+
                     SidebarListModel::new(&item_list)
                 })
                 .clone()
@@ -318,9 +352,7 @@ mod imp {
 
             self.is_homeserver_reachable.set(is_reachable);
 
-            if let Some(handle) = self.sync_handle.take() {
-                handle.abort();
-            }
+            self.stop_sync();
 
             if is_reachable {
                 info!(session = obj.session_id(), "Homeserver is reachable");
@@ -402,7 +434,12 @@ mod imp {
                     .await;
             });
 
-            self.set_state(SessionState::InitialSync);
+            if self.room_list().n_items() > 0 {
+                self.set_state(SessionState::Ready);
+                self.init_notifications();
+            } else {
+                self.set_state(SessionState::InitialSync);
+            }
             self.sync();
 
             debug!(
@@ -451,8 +488,257 @@ mod imp {
             self.session_changes_handle.replace(Some(handle));
         }
 
-        /// Start syncing the Matrix client.
+        /// Stop any active sync tasks and sliding sync service.
+        fn stop_sync(&self) {
+            if let Some(handle) = self.sync_handle.take() {
+                handle.abort();
+            }
+
+            if let Some(handle) = self.room_updates_handle.take() {
+                handle.abort();
+            }
+
+            if let Some(handle) = self.sync_service_state_handle.take() {
+                handle.abort();
+            }
+
+            if let Some(SyncServiceWrapper(sync_service)) = self.sync_service.borrow().clone() {
+                spawn_tokio!(async move {
+                    sync_service.stop().await;
+                });
+            }
+        }
+
+        /// Start syncing the Matrix client using Simplified Sliding Sync
+        /// (MSC4186) when supported by the homeserver, falling back to classic
+        /// `/sync` otherwise.
+        pub(super) fn subscribe_to_room(&self, room_id: &ruma::RoomId) {
+            let Some(SyncServiceWrapper(sync_service)) = self.sync_service.borrow().clone() else {
+                return;
+            };
+            let client = self.client().clone();
+            let room_id = room_id.to_owned();
+            spawn_tokio!(async move {
+                sync_service
+                    .room_list_service()
+                    .set_room_subscriptions(&[&room_id])
+                    .await;
+
+                // Perform an immediate one-shot Sliding Sync (with no `pos`) for this room so
+                // its latest 20 messages and state are fetched right away even if `room-list`
+                // hadn't synced this room recently.
+                let Ok(builder) = client.sliding_sync("room-open") else {
+                    return;
+                };
+                let Ok(snapshot_sync) = builder
+                    .poll_timeout(std::time::Duration::from_secs(0))
+                    .build()
+                    .await
+                else {
+                    return;
+                };
+
+                let mut subscription =
+                    ruma::api::client::sync::sync_events::v5::request::RoomSubscription::default();
+                subscription.timeline_limit = ruma::uint!(20);
+                subscription.required_state = vec![
+                    (ruma::events::StateEventType::RoomName, String::new()),
+                    (ruma::events::StateEventType::RoomAvatar, String::new()),
+                    (ruma::events::StateEventType::RoomEncryption, String::new()),
+                    (ruma::events::StateEventType::RoomMember, "$LAZY".to_owned()),
+                    (ruma::events::StateEventType::RoomMember, "$ME".to_owned()),
+                ];
+
+                snapshot_sync.add_room_subscriptions(&[&room_id], Some(subscription), false);
+                let stream = snapshot_sync.sync();
+                futures_util::pin_mut!(stream);
+                if let Some(Err(error)) = stream.next().await {
+                    warn!(%room_id, "One-shot room Sliding Sync failed: {error}");
+                }
+            });
+        }
+
         fn sync(&self) {
+            if self.state.get() < SessionState::InitialSync || !self.is_homeserver_reachable.get() {
+                return;
+            }
+
+            self.stop_sync();
+
+            if let Some(SyncServiceWrapper(sync_service)) = self.sync_service.borrow().clone() {
+                self.attach_sync_service(sync_service);
+                return;
+            }
+
+            let client = self.client().clone();
+            if client
+                .homeserver()
+                .host_str()
+                .is_some_and(|host| host == "beeper.com" || host.ends_with(".beeper.com"))
+                || client.rooms().iter().any(|room| {
+                    room.room_id()
+                        .server_name()
+                        .is_some_and(|s| s.as_str() == "beeper.local")
+                })
+            {
+                info!(
+                    session = self.obj().session_id(),
+                    "Using classic /sync (Beeper MSC4186 excludes :beeper.local bridge rooms)"
+                );
+                self.sync_classic();
+                return;
+            }
+
+            let obj = self.obj();
+
+            spawn!(clone!(
+                #[weak]
+                obj,
+                async move {
+                    let session_id = obj.session_id();
+
+                    let result = spawn_tokio!(async move {
+                        SyncService::builder(client)
+                            .with_offline_mode()
+                            .build()
+                            .await
+                    })
+                    .await
+                    .expect("task was not aborted");
+
+                    let imp = obj.imp();
+                    if imp.state.get() < SessionState::InitialSync
+                        || !imp.is_homeserver_reachable.get()
+                    {
+                        return;
+                    }
+
+                    match result {
+                        Ok(sync_service) => {
+                            info!(
+                                session = session_id,
+                                "Starting Simplified Sliding Sync (MSC4186)"
+                            );
+                            let sync_service = Arc::new(sync_service);
+                            imp.sync_service
+                                .replace(Some(SyncServiceWrapper(sync_service.clone())));
+                            imp.attach_sync_service(sync_service);
+                        }
+                        Err(error) => {
+                            warn!(
+                                session = session_id,
+                                "Simplified Sliding Sync unavailable, falling back to classic sync: {error}"
+                            );
+                            imp.sync_classic();
+                        }
+                    }
+                }
+            ));
+        }
+
+        /// Attach room update and state listeners to the `SyncService` and
+        /// start it.
+        fn attach_sync_service(&self, sync_service: Arc<SyncService>) {
+            let client = self.client().clone();
+            let obj_weak = glib::SendWeakRef::from(self.obj().downgrade());
+
+            // Forward room updates emitted by SlidingSync to RoomList.
+            let updates_obj_weak = obj_weak.clone();
+            let room_updates_handle = spawn_tokio!(async move {
+                let mut stream = BroadcastStream::new(client.subscribe_to_all_room_updates());
+                while let Some(update) = stream.next().await {
+                    let rooms = match update {
+                        Ok(rooms) => rooms,
+                        Err(error) => {
+                            warn!("Room updates stream lagged: {error}");
+                            continue;
+                        }
+                    };
+
+                    let updates_obj_weak = updates_obj_weak.clone();
+                    let ctx = glib::MainContext::default();
+                    let _ = ctx
+                        .spawn(async move {
+                            spawn!(async move {
+                                if let Some(obj) = updates_obj_weak.upgrade() {
+                                    obj.imp().room_list().handle_room_updates(rooms);
+                                }
+                            });
+                        })
+                        .await;
+                }
+            })
+            .abort_handle();
+            self.room_updates_handle.replace(Some(room_updates_handle));
+
+            // Observe SyncService state transitions and start the service.
+            let state_sync_service = sync_service.clone();
+            let state_obj_weak = obj_weak;
+            let state_handle = spawn_tokio!(async move {
+                let mut state_stream = state_sync_service.state();
+
+                state_sync_service.start().await;
+
+                while let Some(state) = state_stream.next().await {
+                    let state_obj_weak = state_obj_weak.clone();
+                    let sync_service_for_restart = state_sync_service.clone();
+                    let ctx = glib::MainContext::default();
+
+                    match state {
+                        SyncServiceState::Running => {
+                            let _ = ctx
+                                .spawn(async move {
+                                    spawn!(async move {
+                                        if let Some(obj) = state_obj_weak.upgrade() {
+                                            let imp = obj.imp();
+                                            if imp.state.get() < SessionState::Ready {
+                                                imp.set_state(SessionState::Ready);
+                                                imp.init_notifications();
+                                            }
+                                            imp.set_offline(false);
+                                        }
+                                    });
+                                })
+                                .await;
+                        }
+                        SyncServiceState::Offline => {
+                            let _ = ctx
+                                .spawn(async move {
+                                    spawn!(async move {
+                                        if let Some(obj) = state_obj_weak.upgrade() {
+                                            obj.imp().set_offline(true);
+                                        }
+                                    });
+                                })
+                                .await;
+                        }
+                        SyncServiceState::Error(error) => {
+                            error!("Simplified Sliding Sync error: {error}");
+                            let _ = ctx
+                                .spawn(async move {
+                                    spawn!(async move {
+                                        if let Some(obj) = state_obj_weak.upgrade() {
+                                            obj.imp().set_offline(true);
+                                        }
+                                    });
+                                })
+                                .await;
+                            sleep(Duration::from_secs(5)).await;
+                            sync_service_for_restart.start().await;
+                        }
+                        SyncServiceState::Terminated => {
+                            debug!("Simplified Sliding Sync terminated");
+                        }
+                        SyncServiceState::Idle => {}
+                    }
+                }
+            })
+            .abort_handle();
+            self.sync_service_state_handle.replace(Some(state_handle));
+        }
+
+        /// Start syncing the Matrix client using classic `/sync`.
+        fn sync_classic(&self) {
             if self.state.get() < SessionState::InitialSync || !self.is_homeserver_reachable.get() {
                 return;
             }
@@ -706,9 +992,8 @@ mod imp {
             let obj = self.obj();
             self.set_state(SessionState::LoggedOut);
 
-            if let Some(handle) = self.sync_handle.take() {
-                handle.abort();
-            }
+            self.stop_sync();
+            self.sync_service.take();
 
             if let Some(settings) = self.settings.get() {
                 settings.delete();
@@ -781,6 +1066,12 @@ impl Session {
             .get_or_create(&stored_session.id);
 
         Self::new(stored_session, settings).await
+    }
+
+    /// Subscribe to live updates and full timeline for the given room in
+    /// Sliding Sync.
+    pub(crate) fn subscribe_to_room(&self, room_id: &ruma::RoomId) {
+        self.imp().subscribe_to_room(room_id);
     }
 
     /// Finish initialization of this session.

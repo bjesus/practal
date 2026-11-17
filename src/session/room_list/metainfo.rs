@@ -86,13 +86,13 @@ impl RoomListMetainfo {
     }
 
     /// Watch the given room for metainfo changes.
+    ///
+    /// Only watches `latest-activity` and `is-read` properties instead of
+    /// using a catch-all handler, to avoid being invoked on every property
+    /// change of every room.
     pub fn watch_room(&self, room: &Room) {
         let inner_weak = std::rc::Rc::<RoomListMetainfoInner>::downgrade(&self.0);
-        room.connect_notify_local(None, move |room, param_spec| {
-            if !matches!(param_spec.name(), "latest-activity" | "is-read") {
-                return;
-            }
-
+        let handler = move |room: &Room| {
             let inner_weak = inner_weak.clone();
             let room_id = room.room_id().to_owned();
 
@@ -103,7 +103,11 @@ impl RoomListMetainfo {
 
                 inner.update_rooms_metainfo_for_room(room_id).await;
             });
-        });
+        };
+
+        let handler_clone = handler.clone();
+        room.connect_notify_local(Some("latest-activity"), move |room, _| handler(room));
+        room.connect_notify_local(Some("is-read"), move |room, _| handler_clone(room));
     }
 }
 

@@ -56,6 +56,14 @@ template $ContentRoomHistory: Adw.Bin {
       }
 
       [end]
+      Gtk.ToggleButton search_button {
+        valign: center;
+        icon-name: "system-search-symbolic";
+        tooltip-text: _("Search Messages");
+        active: bind search_bar.search-mode-enabled bidirectional;
+      }
+
+      [end]
       Gtk.MenuButton room_menu {
         valign: center;
         icon-name: "menu-secondary-symbolic";
@@ -63,6 +71,53 @@ template $ContentRoomHistory: Adw.Bin {
         primary: bind template.is-only-view;
         tooltip-text: _("Room Menu");
       }
+    }
+
+    [top]
+    Gtk.SearchBar search_bar {
+      search-mode-enabled: false;
+      show-close-button: true;
+
+      child: Gtk.Box {
+        spacing: 6;
+
+        Gtk.SearchEntry search_entry {
+          hexpand: true;
+          placeholder-text: _("Search messages…");
+        }
+
+        Gtk.Label search_matches_label {
+          visible: false;
+
+          styles [
+            "dimmed",
+            "numeric",
+          ]
+        }
+
+        Adw.Spinner search_spinner {
+          visible: false;
+          tooltip-text: _("Searching older messages…");
+        }
+
+        Gtk.Box {
+          styles [
+            "linked",
+          ]
+
+          Gtk.Button search_prev_button {
+            icon-name: "go-up-symbolic";
+            tooltip-text: _("Previous Match (Older)");
+            sensitive: false;
+          }
+
+          Gtk.Button search_next_button {
+            icon-name: "go-down-symbolic";
+            tooltip-text: _("Next Match (Newer)");
+            sensitive: false;
+          }
+        }
+      };
     }
 
     content: Gtk.Box {

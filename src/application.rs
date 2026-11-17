@@ -20,7 +20,7 @@ use crate::{
 /// The key for the current session setting.
 pub(crate) const SETTINGS_KEY_CURRENT_SESSION: &str = "current-session";
 /// The name of the application.
-pub(crate) const APP_NAME: &str = "Fractal";
+pub(crate) const APP_NAME: &str = "Practal";
 /// The URL of the homepage of the application.
 pub(crate) const APP_HOMEPAGE_URL: &str = "https://gitlab.gnome.org/World/fractal/";
 
@@ -501,9 +501,9 @@ impl Application {
         &self.imp().session_list
     }
 
-    /// Run Fractal.
+    /// Run Practal.
     pub(crate) fn run(&self) {
-        info!("Fractal ({})", config::APP_ID);
+        info!("Practal ({})", config::APP_ID);
         info!("Version: {} ({})", config::VERSION, config::PROFILE);
         info!("Datadir: {}", config::PKGDATADIR);
 

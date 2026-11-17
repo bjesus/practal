@@ -9,6 +9,7 @@ use tracing::{error, warn};
 
 mod encryption_page;
 mod general_page;
+mod interface_page;
 mod notifications_page;
 mod safety_page;
 mod user_session;
@@ -16,6 +17,7 @@ mod user_session;
 use self::{
     encryption_page::{EncryptionPage, ImportExportKeysSubpage, ImportExportKeysSubpageMode},
     general_page::{ChangePasswordSubpage, DeactivateAccountSubpage, GeneralPage, LogOutSubpage},
+    interface_page::InterfacePage,
     notifications_page::NotificationsPage,
     safety_page::{IgnoredUsersSubpage, SafetyPage},
     user_session::{UserSessionListSubpage, UserSessionSubpage},
@@ -79,6 +81,7 @@ mod imp {
             NotificationsPage::ensure_type();
             SafetyPage::ensure_type();
             EncryptionPage::ensure_type();
+            InterfacePage::ensure_type();
 
             Self::bind_template(klass);
 

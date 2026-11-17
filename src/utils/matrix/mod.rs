@@ -215,6 +215,22 @@ pub(crate) async fn client_with_stored_session(
         auto_enable_backups: false,
     };
 
+    // Clear any non-integer classic `/sync` to_device `next_batch_token`
+    // before opening the Client so Simplified Sliding Sync (MSC4186) doesn't
+    // get rejected by servers expecting an integer token.
+    if let Ok(crypto_store) =
+        matrix_sdk_sqlite::SqliteCryptoStore::open(&data_path, Some(&passphrase)).await
+    {
+        use matrix_sdk_crypto::store::CryptoStore as _;
+        if let Ok(Some(token)) = crypto_store.next_batch_token().await
+            && !token.is_empty()
+            && !token.bytes().all(|b| b.is_ascii_digit())
+        {
+            tracing::info!("Clearing non-integer to_device next_batch_token for Sliding Sync");
+            let _ = crypto_store.delete_next_batch_token().await;
+        }
+    }
+
     let mut client_builder = Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store_with_cache_path(data_path, cache_path, Some(&passphrase))

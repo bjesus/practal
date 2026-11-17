@@ -31,6 +31,9 @@ mod imp {
         /// each other.
         #[property(get = Self::justify, set = Self::set_justify, builder(gtk::Justification::Left))]
         justify: PhantomData<gtk::Justification>,
+        /// Whether the text of the label can be selected.
+        #[property(get = Self::is_selectable, set = Self::set_selectable, explicit_notify)]
+        selectable: PhantomData<bool>,
     }
 
     #[glib::object_subclass]
@@ -133,6 +136,21 @@ mod imp {
 
             self.invalidate_widgets();
             self.obj().notify_use_markup();
+        }
+
+        /// Whether the text of the label can be selected.
+        fn is_selectable(&self) -> bool {
+            self.child.is_selectable()
+        }
+
+        /// Set whether the text of the label can be selected.
+        fn set_selectable(&self, selectable: bool) {
+            if self.is_selectable() == selectable {
+                return;
+            }
+
+            self.child.set_selectable(selectable);
+            self.obj().notify_selectable();
         }
 
         /// Sets whether the text of the label should be ellipsized.

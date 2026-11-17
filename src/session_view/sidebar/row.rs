@@ -296,253 +296,9 @@ mod imp {
         }
 
         /// An action group with the available room actions.
-        #[allow(clippy::too_many_lines)]
         fn room_actions(&self) -> Option<gio::SimpleActionGroup> {
             let room = self.room()?;
-
-            let action_group = gio::SimpleActionGroup::new();
-            let category = room.category();
-
-            match category {
-                RoomCategory::Knocked => {
-                    action_group.add_action_entries([gio::ActionEntry::builder(
-                        "retract-invite-request",
-                    )
-                    .activate(clone!(
-                        #[weak(rename_to = imp)]
-                        self,
-                        move |_, _, _| {
-                            if let Some(room) = imp.room() {
-                                spawn!(async move {
-                                    imp.set_room_category(&room, TargetRoomCategory::Left).await;
-                                });
-                            }
-                        }
-                    ))
-                    .build()]);
-                }
-                RoomCategory::Invited => {
-                    action_group.add_action_entries([
-                        gio::ActionEntry::builder("accept-invite")
-                            .activate(clone!(
-                                #[weak(rename_to = imp)]
-                                self,
-                                move |_, _, _| {
-                                    if let Some(room) = imp.room() {
-                                        spawn!(async move {
-                                            imp.set_room_category(
-                                                &room,
-                                                TargetRoomCategory::Normal,
-                                            )
-                                            .await;
-                                        });
-                                    }
-                                }
-                            ))
-                            .build(),
-                        gio::ActionEntry::builder("decline-invite")
-                            .activate(clone!(
-                                #[weak(rename_to = imp)]
-                                self,
-                                move |_, _, _| {
-                                    if let Some(room) = imp.room() {
-                                        spawn!(async move {
-                                            imp.set_room_category(&room, TargetRoomCategory::Left)
-                                                .await;
-                                        });
-                                    }
-                                }
-                            ))
-                            .build(),
-                    ]);
-                }
-                RoomCategory::Favorite | RoomCategory::Normal | RoomCategory::LowPriority => {
-                    if matches!(category, RoomCategory::Favorite | RoomCategory::LowPriority) {
-                        action_group.add_action_entries([gio::ActionEntry::builder("set-normal")
-                            .activate(clone!(
-                                #[weak(rename_to = imp)]
-                                self,
-                                move |_, _, _| {
-                                    if let Some(room) = imp.room() {
-                                        spawn!(async move {
-                                            imp.set_room_category(
-                                                &room,
-                                                TargetRoomCategory::Normal,
-                                            )
-                                            .await;
-                                        });
-                                    }
-                                }
-                            ))
-                            .build()]);
-                    }
-
-                    if matches!(category, RoomCategory::Normal | RoomCategory::LowPriority) {
-                        action_group.add_action_entries([gio::ActionEntry::builder(
-                            "set-favorite",
-                        )
-                        .activate(clone!(
-                            #[weak(rename_to = imp)]
-                            self,
-                            move |_, _, _| {
-                                if let Some(room) = imp.room() {
-                                    spawn!(async move {
-                                        imp.set_room_category(&room, TargetRoomCategory::Favorite)
-                                            .await;
-                                    });
-                                }
-                            }
-                        ))
-                        .build()]);
-                    }
-
-                    if matches!(category, RoomCategory::Favorite | RoomCategory::Normal) {
-                        action_group.add_action_entries([gio::ActionEntry::builder(
-                            "set-lowpriority",
-                        )
-                        .activate(clone!(
-                            #[weak(rename_to = imp)]
-                            self,
-                            move |_, _, _| {
-                                if let Some(room) = imp.room() {
-                                    spawn!(async move {
-                                        imp.set_room_category(
-                                            &room,
-                                            TargetRoomCategory::LowPriority,
-                                        )
-                                        .await;
-                                    });
-                                }
-                            }
-                        ))
-                        .build()]);
-                    }
-
-                    action_group.add_action_entries([gio::ActionEntry::builder("leave")
-                        .activate(clone!(
-                            #[weak(rename_to = imp)]
-                            self,
-                            move |_, _, _| {
-                                if let Some(room) = imp.room() {
-                                    spawn!(async move {
-                                        imp.set_room_category(&room, TargetRoomCategory::Left)
-                                            .await;
-                                    });
-                                }
-                            }
-                        ))
-                        .build()]);
-
-                    if room.is_read() {
-                        action_group.add_action_entries([gio::ActionEntry::builder(
-                            "mark-as-unread",
-                        )
-                        .activate(clone!(
-                            #[weak]
-                            room,
-                            move |_, _, _| {
-                                spawn!(async move {
-                                    room.mark_as_unread().await;
-                                });
-                            }
-                        ))
-                        .build()]);
-                    } else {
-                        action_group.add_action_entries([gio::ActionEntry::builder(
-                            "mark-as-read",
-                        )
-                        .activate(clone!(
-                            #[weak]
-                            room,
-                            move |_, _, _| {
-                                spawn!(async move {
-                                    room.send_receipt(ReceiptType::Read, ReceiptPosition::End)
-                                        .await;
-                                });
-                            }
-                        ))
-                        .build()]);
-                    }
-                }
-                RoomCategory::Left => {
-                    if room.join_rule().we_can_join() {
-                        action_group.add_action_entries([gio::ActionEntry::builder("join")
-                            .activate(clone!(
-                                #[weak(rename_to = imp)]
-                                self,
-                                move |_, _, _| {
-                                    if let Some(room) = imp.room() {
-                                        spawn!(async move {
-                                            imp.set_room_category(
-                                                &room,
-                                                TargetRoomCategory::Normal,
-                                            )
-                                            .await;
-                                        });
-                                    }
-                                }
-                            ))
-                            .build()]);
-                    }
-
-                    action_group.add_action_entries([gio::ActionEntry::builder("forget")
-                        .activate(clone!(
-                            #[weak(rename_to = imp)]
-                            self,
-                            move |_, _, _| {
-                                if let Some(room) = imp.room() {
-                                    spawn!(async move {
-                                        imp.forget_room(&room).await;
-                                    });
-                                }
-                            }
-                        ))
-                        .build()]);
-                }
-                RoomCategory::Outdated | RoomCategory::Space | RoomCategory::Ignored => {}
-            }
-
-            if matches!(
-                category,
-                RoomCategory::Favorite
-                    | RoomCategory::Normal
-                    | RoomCategory::LowPriority
-                    | RoomCategory::Left
-            ) {
-                if room.is_direct() {
-                    action_group.add_action_entries([gio::ActionEntry::builder(
-                        "unset-direct-chat",
-                    )
-                    .activate(clone!(
-                        #[weak(rename_to = imp)]
-                        self,
-                        move |_, _, _| {
-                            if let Some(room) = imp.room() {
-                                spawn!(async move {
-                                    imp.set_room_is_direct(&room, false).await;
-                                });
-                            }
-                        }
-                    ))
-                    .build()]);
-                } else {
-                    action_group.add_action_entries([gio::ActionEntry::builder("set-direct-chat")
-                        .activate(clone!(
-                            #[weak(rename_to = imp)]
-                            self,
-                            move |_, _, _| {
-                                if let Some(room) = imp.room() {
-                                    spawn!(async move {
-                                        imp.set_room_is_direct(&room, true).await;
-                                    });
-                                }
-                            }
-                        ))
-                        .build()]);
-                }
-            }
-
-            Some(action_group)
+            Some(build_room_action_group(self.obj().upcast_ref(), &room))
         }
 
         /// Update the disabled or empty state of this drop target.
@@ -661,7 +417,8 @@ mod imp {
                             #[weak(rename_to = imp)]
                             self,
                             async move {
-                                imp.set_room_category(&room, target_category).await;
+                                set_room_category(imp.obj().upcast_ref(), &room, target_category)
+                                    .await;
                             }
                         ));
                         ret = true;
@@ -675,7 +432,7 @@ mod imp {
                         #[weak(rename_to = imp)]
                         self,
                         async move {
-                            imp.forget_room(&room).await;
+                            forget_room(imp.obj().upcast_ref(), &room).await;
                         }
                     ));
                     ret = true;
@@ -686,123 +443,262 @@ mod imp {
             }
             ret
         }
+    }
+}
 
-        /// Change the category of the given room.
-        async fn set_room_category(&self, room: &Room, category: TargetRoomCategory) {
-            let obj = self.obj();
+/// Build an action group with the available `room-row.*` actions for the given
+/// room.
+#[allow(clippy::too_many_lines)]
+pub(super) fn build_room_action_group(widget: &gtk::Widget, room: &Room) -> gio::SimpleActionGroup {
+    let action_group = gio::SimpleActionGroup::new();
+    let category = room.category();
 
-            let ignored_inviter = if category == TargetRoomCategory::Left {
-                let Some(response) = confirm_leave_room_dialog(room, &*obj).await else {
-                    return;
-                };
-
-                response.ignore_inviter.then(|| room.inviter()).flatten()
-            } else {
-                None
-            };
-
-            let previous_category = room.category();
-            if room.change_category(category).await.is_err() {
-                match previous_category {
-                    RoomCategory::Invited => {
-                        if category == RoomCategory::Left {
-                            toast!(
-                                obj,
-                                gettext(
-                                    // Translators: Do NOT translate the content between '{' and '}', this
-                                    // is a variable name.
-                                    "Could not decline invitation for {room}",
-                                ),
-                                @room,
-                            );
-                        } else {
-                            toast!(
-                                obj,
-                                gettext(
-                                    // Translators: Do NOT translate the content between '{' and '}', this
-                                    // is a variable name.
-                                    "Could not accept invitation for {room}",
-                                ),
-                                @room,
-                            );
-                        }
-                    }
-                    RoomCategory::Left => {
-                        toast!(
-                            obj,
-                            gettext(
-                                // Translators: Do NOT translate the content between '{' and '}', this is a
-                                // variable name.
-                                "Could not join {room}",
-                            ),
-                            @room,
-                        );
-                    }
-                    _ => {
-                        if category == RoomCategory::Left {
-                            toast!(
-                                obj,
-                                gettext(
-                                    // Translators: Do NOT translate the content between '{' and '}', this is a variable name.
-                                    "Could not leave {room}",
-                                ),
-                                @room,
-                            );
-                        } else {
-                            toast!(
-                                obj,
-                                gettext(
-                                    // Translators: Do NOT translate the content between '{' and '}', this is a variable name.
-                                    "Could not move {room} from {previous_category} to {new_category}",
-                                ),
-                                @room,
-                                previous_category = previous_category.to_string(),
-                                new_category = RoomCategory::from(category).to_string(),
-                            );
-                        }
-                    }
+    let add_category_action = |name: &str, target: TargetRoomCategory| {
+        gio::ActionEntry::builder(name)
+            .activate(clone!(
+                #[weak]
+                widget,
+                #[weak]
+                room,
+                move |_, _, _| {
+                    spawn!(async move {
+                        set_room_category(&widget, &room, target).await;
+                    });
                 }
+            ))
+            .build()
+    };
+
+    match category {
+        RoomCategory::Knocked => {
+            action_group.add_action_entries([add_category_action(
+                "retract-invite-request",
+                TargetRoomCategory::Left,
+            )]);
+        }
+        RoomCategory::Invited => {
+            action_group.add_action_entries([
+                add_category_action("accept-invite", TargetRoomCategory::Normal),
+                add_category_action("decline-invite", TargetRoomCategory::Left),
+            ]);
+        }
+        RoomCategory::Favorite | RoomCategory::Normal | RoomCategory::LowPriority => {
+            if matches!(category, RoomCategory::Favorite | RoomCategory::LowPriority) {
+                action_group.add_action_entries([add_category_action(
+                    "set-normal",
+                    TargetRoomCategory::Normal,
+                )]);
             }
 
-            if let Some(inviter) = ignored_inviter
-                && inviter.upcast::<User>().ignore().await.is_err()
-            {
-                toast!(obj, gettext("Could not ignore user"));
+            if matches!(category, RoomCategory::Normal | RoomCategory::LowPriority) {
+                action_group.add_action_entries([add_category_action(
+                    "set-favorite",
+                    TargetRoomCategory::Favorite,
+                )]);
+            }
+
+            if matches!(category, RoomCategory::Favorite | RoomCategory::Normal) {
+                action_group.add_action_entries([add_category_action(
+                    "set-lowpriority",
+                    TargetRoomCategory::LowPriority,
+                )]);
+            }
+
+            action_group
+                .add_action_entries([add_category_action("leave", TargetRoomCategory::Left)]);
+
+            if room.is_read() {
+                action_group.add_action_entries([gio::ActionEntry::builder("mark-as-unread")
+                    .activate(clone!(
+                        #[weak]
+                        room,
+                        move |_, _, _| {
+                            spawn!(async move {
+                                room.mark_as_unread().await;
+                            });
+                        }
+                    ))
+                    .build()]);
+            } else {
+                action_group.add_action_entries([gio::ActionEntry::builder("mark-as-read")
+                    .activate(clone!(
+                        #[weak]
+                        room,
+                        move |_, _, _| {
+                            spawn!(async move {
+                                room.send_receipt(ReceiptType::Read, ReceiptPosition::End)
+                                    .await;
+                            });
+                        }
+                    ))
+                    .build()]);
             }
         }
+        RoomCategory::Left => {
+            if room.join_rule().we_can_join() {
+                action_group
+                    .add_action_entries([add_category_action("join", TargetRoomCategory::Normal)]);
+            }
 
-        /// Forget the given room.
-        async fn forget_room(&self, room: &Room) {
-            if room.forget().await.is_err() {
+            action_group.add_action_entries([gio::ActionEntry::builder("forget")
+                .activate(clone!(
+                    #[weak]
+                    widget,
+                    #[weak]
+                    room,
+                    move |_, _, _| {
+                        spawn!(async move {
+                            forget_room(&widget, &room).await;
+                        });
+                    }
+                ))
+                .build()]);
+        }
+        RoomCategory::Outdated | RoomCategory::Space | RoomCategory::Ignored => {}
+    }
+
+    if matches!(
+        category,
+        RoomCategory::Favorite
+            | RoomCategory::Normal
+            | RoomCategory::LowPriority
+            | RoomCategory::Left
+    ) {
+        let (action_name, is_direct) = if room.is_direct() {
+            ("unset-direct-chat", false)
+        } else {
+            ("set-direct-chat", true)
+        };
+        action_group.add_action_entries([gio::ActionEntry::builder(action_name)
+            .activate(clone!(
+                #[weak]
+                widget,
+                #[weak]
+                room,
+                move |_, _, _| {
+                    spawn!(async move {
+                        set_room_is_direct(&widget, &room, is_direct).await;
+                    });
+                }
+            ))
+            .build()]);
+    }
+
+    action_group
+}
+
+/// Change the category of the given room.
+async fn set_room_category(widget: &gtk::Widget, room: &Room, category: TargetRoomCategory) {
+    let ignored_inviter = if category == TargetRoomCategory::Left {
+        let Some(response) = confirm_leave_room_dialog(room, widget).await else {
+            return;
+        };
+
+        response.ignore_inviter.then(|| room.inviter()).flatten()
+    } else {
+        None
+    };
+
+    let previous_category = room.category();
+    if room.change_category(category).await.is_err() {
+        match previous_category {
+            RoomCategory::Invited => {
+                if category == RoomCategory::Left {
+                    toast!(
+                        widget,
+                        gettext(
+                            // Translators: Do NOT translate the content between '{' and '}', this
+                            // is a variable name.
+                            "Could not decline invitation for {room}",
+                        ),
+                        @room,
+                    );
+                } else {
+                    toast!(
+                        widget,
+                        gettext(
+                            // Translators: Do NOT translate the content between '{' and '}', this
+                            // is a variable name.
+                            "Could not accept invitation for {room}",
+                        ),
+                        @room,
+                    );
+                }
+            }
+            RoomCategory::Left => {
                 toast!(
-                    self.obj(),
-                    // Translators: Do NOT translate the content between '{' and '}', this is a variable name.
-                    gettext("Could not forget {room}"),
+                    widget,
+                    gettext(
+                        // Translators: Do NOT translate the content between '{' and '}', this is a
+                        // variable name.
+                        "Could not join {room}",
+                    ),
                     @room,
                 );
             }
-        }
-
-        /// Set or unset the room as a direct chat.
-        async fn set_room_is_direct(&self, room: &Room, is_direct: bool) {
-            let matrix_room = room.matrix_room().clone();
-            let handle = spawn_tokio!(async move { matrix_room.set_is_direct(is_direct).await });
-
-            if let Err(error) = handle.await.unwrap() {
-                let obj = self.obj();
-
-                if is_direct {
-                    error!("Could not mark room as direct chat: {error}");
-                    // Translators: Do NOT translate the content between '{' and '}', this is a
-                    // variable name.
-                    toast!(obj, gettext("Could not mark {room} as direct chat"), @room);
+            _ => {
+                if category == RoomCategory::Left {
+                    toast!(
+                        widget,
+                        gettext(
+                            // Translators: Do NOT translate the content between '{' and '}', this
+                            // is a variable name.
+                            "Could not leave {room}",
+                        ),
+                        @room,
+                    );
                 } else {
-                    error!("Could not unmark room as direct chat: {error}");
-                    // Translators: Do NOT translate the content between '{' and '}', this is a
-                    // variable name.
-                    toast!(obj, gettext("Could not unmark {room} as direct chat"), @room);
+                    toast!(
+                        widget,
+                        gettext(
+                            // Translators: Do NOT translate the content between '{' and '}', this
+                            // is a variable name.
+                            "Could not move {room} from {previous_category} to {new_category}",
+                        ),
+                        @room,
+                        previous_category = previous_category.to_string(),
+                        new_category = RoomCategory::from(category).to_string(),
+                    );
                 }
             }
+        }
+    }
+
+    if let Some(inviter) = ignored_inviter
+        && inviter.upcast::<User>().ignore().await.is_err()
+    {
+        toast!(widget, gettext("Could not ignore user"));
+    }
+}
+
+/// Forget the given room.
+async fn forget_room(widget: &gtk::Widget, room: &Room) {
+    if room.forget().await.is_err() {
+        toast!(
+            widget,
+            // Translators: Do NOT translate the content between '{' and '}', this is a variable name.
+            gettext("Could not forget {room}"),
+            @room,
+        );
+    }
+}
+
+/// Set or unset the room as a direct chat.
+async fn set_room_is_direct(widget: &gtk::Widget, room: &Room, is_direct: bool) {
+    let matrix_room = room.matrix_room().clone();
+    let handle = spawn_tokio!(async move { matrix_room.set_is_direct(is_direct).await });
+
+    if let Err(error) = handle.await.unwrap() {
+        if is_direct {
+            error!("Could not mark room as direct chat: {error}");
+            // Translators: Do NOT translate the content between '{' and '}', this is a
+            // variable name.
+            toast!(widget, gettext("Could not mark {room} as direct chat"), @room);
+        } else {
+            error!("Could not unmark room as direct chat: {error}");
+            // Translators: Do NOT translate the content between '{' and '}', this is a
+            // variable name.
+            toast!(widget, gettext("Could not unmark {room} as direct chat"), @room);
         }
     }
 }

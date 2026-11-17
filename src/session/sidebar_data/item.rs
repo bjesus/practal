@@ -26,6 +26,8 @@ mod imp {
         /// their "is-expanded" property.
         #[property(get, set = Self::set_inhibit_expanded, explicit_notify)]
         inhibit_expanded: Cell<bool>,
+        /// Whether to hide the section header row and force children expanded.
+        hide_header: Cell<bool>,
         is_visible_filter: gtk::CustomFilter,
         is_expanded_filter: gtk::CustomFilter,
         /// The inner model.
@@ -38,6 +40,7 @@ mod imp {
                 inner_item: Default::default(),
                 is_visible: Cell::new(true),
                 inhibit_expanded: Default::default(),
+                hide_header: Default::default(),
                 is_visible_filter: Default::default(),
                 is_expanded_filter: Default::default(),
                 model: Default::default(),
@@ -86,7 +89,9 @@ mod imp {
                     section,
                     #[upgrade_or]
                     false,
-                    move |_| imp.inhibit_expanded.get() || section.is_expanded()
+                    move |_| imp.inhibit_expanded.get()
+                        || imp.hide_header.get()
+                        || section.is_expanded()
                 ));
                 let children_model = gtk::FilterListModel::new(
                     Some(section.clone()),
@@ -120,7 +125,8 @@ mod imp {
                 self,
                 #[upgrade_or]
                 false,
-                move |_| imp.is_visible.get()
+                move |item| imp.is_visible.get()
+                    && (!imp.hide_header.get() || !item.is::<SidebarSection>())
             ));
             let model =
                 gtk::FilterListModel::new(Some(inner_model), Some(self.is_visible_filter.clone()));
@@ -161,6 +167,19 @@ mod imp {
             self.is_expanded_filter
                 .changed(gtk::FilterChange::Different);
         }
+
+        /// Set whether to hide the section header row and force children
+        /// expanded.
+        pub(super) fn set_hide_header(&self, hide: bool) {
+            if self.hide_header.get() == hide {
+                return;
+            }
+
+            self.hide_header.set(hide);
+            self.is_expanded_filter
+                .changed(gtk::FilterChange::Different);
+            self.is_visible_filter.changed(gtk::FilterChange::Different);
+        }
     }
 }
 
@@ -197,5 +216,15 @@ impl SidebarItem {
         };
 
         self.imp().set_visible(visible);
+    }
+
+    /// Set whether this item is visible.
+    pub(super) fn set_visible(&self, visible: bool) {
+        self.imp().set_visible(visible);
+    }
+
+    /// Set whether to hide the section header row and force children expanded.
+    pub(super) fn set_hide_header(&self, hide: bool) {
+        self.imp().set_hide_header(hide);
     }
 }

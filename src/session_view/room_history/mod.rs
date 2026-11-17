@@ -80,6 +80,18 @@ mod imp {
         #[template_child]
         room_menu: TemplateChild<gtk::MenuButton>,
         #[template_child]
+        search_bar: TemplateChild<gtk::SearchBar>,
+        #[template_child]
+        search_entry: TemplateChild<gtk::SearchEntry>,
+        #[template_child]
+        search_matches_label: TemplateChild<gtk::Label>,
+        #[template_child]
+        search_spinner: TemplateChild<adw::Spinner>,
+        #[template_child]
+        search_prev_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        search_next_button: TemplateChild<gtk::Button>,
+        #[template_child]
         pending_knocks_banner: TemplateChild<adw::Banner>,
         #[template_child]
         listview: TemplateChild<gtk::ListView>,
@@ -130,6 +142,10 @@ mod imp {
         join_rule_handler: RefCell<Option<glib::SignalHandlerId>>,
         knock_items_changed_handler: RefCell<Option<glib::SignalHandlerId>>,
         window_active_handler: RefCell<Option<glib::SignalHandlerId>>,
+        timeline_items_handler: RefCell<Option<glib::SignalHandlerId>>,
+        search_matches: RefCell<Vec<TimelineEventItemId>>,
+        current_search_match: Cell<Option<usize>>,
+        search_generation: Cell<u64>,
     }
 
     #[glib::object_subclass]
@@ -167,6 +183,15 @@ mod imp {
                         room_details::SubpageName::Invite,
                     ));
             });
+
+            klass.install_action("room-history.toggle-search", None, |obj, _, _| {
+                obj.imp().toggle_search();
+            });
+            klass.add_binding_action(
+                gdk::Key::f,
+                gdk::ModifierType::CONTROL_MASK,
+                "room-history.toggle-search",
+            );
 
             klass.install_action(
                 "room-history.scroll-to-event",
@@ -273,6 +298,7 @@ mod imp {
 
             self.init_listview();
             self.init_drop_target();
+            self.init_search();
 
             self.scroll_btn_revealer
                 .connect_child_revealed_notify(|revealer| {
@@ -458,6 +484,12 @@ mod imp {
                     .disconnect(handler);
             }
 
+            if let Some(timeline) = self.timeline.obj()
+                && let Some(handler) = self.timeline_items_handler.take()
+            {
+                timeline.items().disconnect(handler);
+            }
+
             self.timeline.disconnect_signals();
         }
 
@@ -469,6 +501,12 @@ mod imp {
             }
 
             self.disconnect_all();
+            self.search_bar.set_search_mode(false);
+            self.search_generation
+                .set(self.search_generation.get().wrapping_add(1));
+            self.search_spinner.set_visible(false);
+            self.search_matches.borrow_mut().clear();
+            self.current_search_match.set(None);
             if let Some(source_id) = self.scroll_timeout.take() {
                 source_id.remove();
             }
@@ -567,6 +605,17 @@ mod imp {
 
                 self.timeline
                     .set(timeline.clone(), vec![empty_handler, state_handler]);
+
+                let items_handler = timeline.items().connect_items_changed(clone!(
+                    #[weak(rename_to = imp)]
+                    self,
+                    move |_, _, _, _| {
+                        if imp.search_bar.is_search_mode() {
+                            imp.update_search_matches(false);
+                        }
+                    }
+                ));
+                self.timeline_items_handler.replace(Some(items_handler));
 
                 timeline.remove_empty_typing_row();
                 self.grouping_model().set_model(Some(timeline.items()));
@@ -1142,6 +1191,236 @@ mod imp {
                 MembershipListKind::Knock,
             ));
         }
+
+        /// Initialize in-chat search bar and signals.
+        fn init_search(&self) {
+            self.search_bar.connect_entry(&*self.search_entry);
+
+            self.search_bar.connect_search_mode_enabled_notify(clone!(
+                #[weak(rename_to = imp)]
+                self,
+                move |bar| {
+                    if bar.is_search_mode() {
+                        imp.search_entry.grab_focus();
+                        imp.update_search_matches(true);
+                    } else {
+                        imp.search_generation
+                            .set(imp.search_generation.get().wrapping_add(1));
+                        imp.search_spinner.set_visible(false);
+                        imp.search_entry.set_text("");
+                        imp.search_matches.borrow_mut().clear();
+                        imp.current_search_match.set(None);
+                        imp.search_matches_label.set_visible(false);
+                    }
+                }
+            ));
+
+            self.search_entry.connect_search_changed(clone!(
+                #[weak(rename_to = imp)]
+                self,
+                move |_| {
+                    imp.update_search_matches(true);
+                    imp.start_background_search_pagination();
+                }
+            ));
+
+            self.search_entry.connect_activate(clone!(
+                #[weak(rename_to = imp)]
+                self,
+                move |_| {
+                    imp.navigate_search(-1);
+                }
+            ));
+
+            self.search_prev_button.connect_clicked(clone!(
+                #[weak(rename_to = imp)]
+                self,
+                move |_| {
+                    imp.navigate_search(-1);
+                }
+            ));
+
+            self.search_next_button.connect_clicked(clone!(
+                #[weak(rename_to = imp)]
+                self,
+                move |_| {
+                    imp.navigate_search(1);
+                }
+            ));
+        }
+
+        /// Toggle the in-chat search bar.
+        fn toggle_search(&self) {
+            let active = !self.search_bar.is_search_mode();
+            self.search_bar.set_search_mode(active);
+            if active {
+                self.search_entry.grab_focus();
+            }
+        }
+
+        /// Recompute matches for the current search query across loaded
+        /// timeline items.
+        fn update_search_matches(&self, jump_to_newest: bool) {
+            let query = secular::normalized_lower_lay_string(&self.search_entry.text());
+            let query = query.trim();
+
+            if query.is_empty() {
+                self.search_matches.borrow_mut().clear();
+                self.current_search_match.set(None);
+                self.search_matches_label.set_visible(false);
+                self.search_prev_button.set_sensitive(false);
+                self.search_next_button.set_sensitive(false);
+                return;
+            }
+
+            let Some(timeline) = self.timeline.obj() else {
+                return;
+            };
+
+            let prev_selected = self
+                .current_search_match
+                .get()
+                .and_then(|idx| self.search_matches.borrow().get(idx).cloned());
+
+            let matches: Vec<TimelineEventItemId> = timeline
+                .items()
+                .iter::<glib::Object>()
+                .filter_map(|item| {
+                    let event = item.ok()?.downcast::<Event>().ok()?;
+                    let text = event_searchable_text(&event)?;
+                    let normalized = secular::normalized_lower_lay_string(&text);
+                    normalized.contains(query).then(|| event.identifier())
+                })
+                .collect();
+
+            let next_idx = if matches.is_empty() {
+                None
+            } else if jump_to_newest {
+                Some(matches.len() - 1)
+            } else if let Some(ref prev_id) = prev_selected
+                && let Some(pos) = matches.iter().position(|id| id == prev_id)
+            {
+                Some(pos)
+            } else {
+                Some(matches.len() - 1)
+            };
+
+            self.search_matches.replace(matches);
+            self.current_search_match.set(next_idx);
+            self.update_search_ui();
+
+            if (jump_to_newest || prev_selected.is_none())
+                && let Some(idx) = next_idx
+            {
+                self.scroll_to_search_match(idx);
+            }
+        }
+
+        /// Move to the previous (`-1`, older) or next (`+1`, newer) match.
+        fn navigate_search(&self, delta: isize) {
+            let len = self.search_matches.borrow().len();
+            if len == 0 {
+                return;
+            }
+
+            let current = self.current_search_match.get().unwrap_or(len - 1);
+            let next = ((current as isize + delta).rem_euclid(len as isize)) as usize;
+            self.current_search_match.set(Some(next));
+            self.update_search_ui();
+            self.scroll_to_search_match(next);
+        }
+
+        /// Update the search counter label and navigation buttons.
+        fn update_search_ui(&self) {
+            let len = self.search_matches.borrow().len();
+            let has_matches = len > 0;
+            self.search_prev_button.set_sensitive(has_matches);
+            self.search_next_button.set_sensitive(has_matches);
+
+            if self.search_entry.text().trim().is_empty() {
+                self.search_matches_label.set_visible(false);
+            } else if let Some(idx) = self.current_search_match.get()
+                && has_matches
+            {
+                self.search_matches_label
+                    .set_text(&format!("{} / {len}", idx + 1));
+                self.search_matches_label.set_visible(true);
+            } else {
+                self.search_matches_label.set_text(&gettext("No matches"));
+                self.search_matches_label.set_visible(true);
+            }
+        }
+
+        /// Scroll the timeline to the match at `index`.
+        fn scroll_to_search_match(&self, index: usize) {
+            let Some(id) = self.search_matches.borrow().get(index).cloned() else {
+                return;
+            };
+            self.scroll_to_event(&id);
+        }
+
+        /// Continuously paginate backwards in the background while a search
+        /// query is active, updating matches as older history arrives.
+        fn start_background_search_pagination(&self) {
+            let generation = self.search_generation.get().wrapping_add(1);
+            self.search_generation.set(generation);
+
+            let query_empty = self.search_entry.text().trim().is_empty();
+            if query_empty || !self.search_bar.is_search_mode() {
+                self.search_spinner.set_visible(false);
+                return;
+            }
+
+            let Some(timeline) = self.timeline.obj() else {
+                self.search_spinner.set_visible(false);
+                return;
+            };
+
+            self.search_spinner.set_visible(true);
+
+            spawn!(clone!(
+                #[weak(rename_to = imp)]
+                self,
+                async move {
+                    timeline
+                        .paginate_backwards(clone!(
+                            #[weak]
+                            imp,
+                            #[upgrade_or]
+                            ControlFlow::Break(()),
+                            move || {
+                                if imp.search_generation.get() == generation
+                                    && imp.search_bar.is_search_mode()
+                                    && !imp.search_entry.text().trim().is_empty()
+                                {
+                                    ControlFlow::Continue(())
+                                } else {
+                                    ControlFlow::Break(())
+                                }
+                            }
+                        ))
+                        .await;
+
+                    if imp.search_generation.get() == generation {
+                        imp.search_spinner.set_visible(false);
+                    }
+                }
+            ));
+        }
+    }
+}
+
+/// Extract searchable plaintext from a timeline [`Event`].
+fn event_searchable_text(event: &Event) -> Option<String> {
+    let message = event.message()?;
+    match message.msgtype() {
+        MessageType::Text(m) => Some(m.body.clone()),
+        MessageType::Emote(m) => Some(format!("{} {}", event.sender().display_name(), m.body)),
+        MessageType::Notice(m) => Some(m.body.clone()),
+        MessageType::ServerNotice(m) => Some(m.body.clone()),
+        _ => event
+            .media_message()
+            .and_then(|media| media.caption().map(|(caption, _)| caption)),
     }
 }
 

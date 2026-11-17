@@ -251,6 +251,7 @@ mod imp {
                 self.remove_joining_room((*room_id).into());
                 self.metainfo.watch_room(&room);
                 room.handle_ambiguity_changes(joined_room.ambiguity_changes.values());
+                room.update_latest_activity_from_sync(&joined_room.timeline.events);
             }
 
             for (room_id, _invited_room) in rooms.invited {
@@ -555,6 +556,16 @@ impl RoomList {
         via: Vec<OwnedServerName>,
     ) -> Result<OwnedRoomId, String> {
         self.imp().knock(identifier, via).await
+    }
+
+    /// Refresh the display names of all rooms.
+    ///
+    /// This is useful when display name computation settings change.
+    pub(crate) async fn refresh_display_names(&self) {
+        let rooms = self.snapshot();
+        for room in rooms {
+            room.refresh_display_name().await;
+        }
     }
 
     /// Connect to the signal emitted when the list of rooms we are currently

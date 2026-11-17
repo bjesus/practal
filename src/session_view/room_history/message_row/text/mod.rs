@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use adw::{prelude::*, subclass::prelude::*};
-use gtk::{glib, glib::clone, pango};
+use gtk::{gdk, glib, glib::clone, graphene, pango};
 use matrix_sdk::ruma::events::room::message::FormattedBody;
 use ruma::{
     events::room::message::MessageFormat,
@@ -16,7 +16,7 @@ mod widgets;
 use self::widgets::{HtmlWidgetConfig, new_message_label, widget_for_html_nodes};
 use super::ContentFormat;
 use crate::{
-    components::{AtRoom, LabelWithWidgets},
+    components::{AtRoom, ContextMenuBin, LabelWithWidgets},
     prelude::*,
     session::{Member, Room},
     utils::{
@@ -58,7 +58,59 @@ mod imp {
     }
 
     #[glib::derived_properties]
-    impl ObjectImpl for MessageText {}
+    impl ObjectImpl for MessageText {
+        fn constructed(&self) {
+            self.parent_constructed();
+
+            // Intercept right-clicks in the capture phase so selectable labels
+            // don't open GTK's default Cut/Copy/Paste menu, and forward them
+            // to the ancestor ContextMenuBin instead.
+            let click_gesture = gtk::GestureClick::builder()
+                .button(gdk::BUTTON_SECONDARY)
+                .propagation_phase(gtk::PropagationPhase::Capture)
+                .build();
+
+            click_gesture.connect_pressed(clone!(
+                #[weak(rename_to = imp)]
+                self,
+                move |gesture, _, _, _| {
+                    if let Some(bin) = imp
+                        .obj()
+                        .ancestor(ContextMenuBin::static_type())
+                        .and_downcast::<ContextMenuBin>()
+                        && bin.has_context_menu()
+                    {
+                        gesture.set_state(gtk::EventSequenceState::Claimed);
+                    }
+                }
+            ));
+
+            click_gesture.connect_released(clone!(
+                #[weak(rename_to = imp)]
+                self,
+                move |_, n_press, x, y| {
+                    if n_press > 1 {
+                        return;
+                    }
+
+                    if let Some(bin) = imp
+                        .obj()
+                        .ancestor(ContextMenuBin::static_type())
+                        .and_downcast::<ContextMenuBin>()
+                        && bin.has_context_menu()
+                    {
+                        let (px, py) = imp
+                            .obj()
+                            .compute_point(&bin, &graphene::Point::new(x as f32, y as f32))
+                            .map_or((0, 0), |p| (p.x() as i32, p.y() as i32));
+                        bin.open_menu_at(px, py);
+                    }
+                }
+            ));
+
+            self.obj().add_controller(click_gesture);
+        }
+    }
 
     impl WidgetImpl for MessageText {}
     impl BinImpl for MessageText {}
@@ -222,6 +274,7 @@ mod imp {
             } else {
                 pango::EllipsizeMode::None
             };
+            child.set_selectable(!ellipsize);
             child.set_ellipsize(ellipsize_mode);
 
             child.set_label(&text);
@@ -266,6 +319,7 @@ mod imp {
             let child = obj.child_or_default::<LabelWithWidgets>();
 
             child.add_css_class("document");
+            child.set_selectable(!ellipsize);
             child.set_ellipsize(ellipsize);
             child.set_use_markup(true);
             child.set_label_and_widgets(result, pills);

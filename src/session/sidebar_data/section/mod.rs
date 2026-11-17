@@ -106,12 +106,21 @@ mod imp {
             // Special-case room lists so that they are sorted and in the right section.
             let inner_model = if model.is::<RoomList>() {
                 // Filter the list to only show rooms for the proper category.
+                // Instead of using watch_items(true) which watches ALL
+                // properties on every Room, we wrap the model in an
+                // ExpressionListModel that watches only the "category"
+                // property and signals item changes when it changes.
+                let room_category = Room::this_expression("category");
                 self.filter
-                    .set_expression(Some(Room::this_expression("category").upcast()));
+                    .set_expression(Some(room_category.clone().upcast()));
+
+                let category_expr_model = ExpressionListModel::new();
+                category_expr_model.set_expressions(vec![room_category.upcast()]);
+                category_expr_model.set_model(Some(model.clone()));
+
                 let filter_model = gtk::FilterListModel::builder()
-                    .model(&model)
+                    .model(&category_expr_model)
                     .filter(&self.filter)
-                    .watch_items(true)
                     .build();
 
                 // Sort the list by activity.

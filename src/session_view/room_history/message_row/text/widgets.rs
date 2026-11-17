@@ -42,6 +42,7 @@ pub(super) fn new_message_label() -> gtk::Label {
         .xalign(0.0)
         .valign(gtk::Align::Start)
         .use_markup(true)
+        .selectable(true)
         .css_classes(["document"])
         .build()
 }
@@ -204,12 +205,14 @@ fn label_for_inline_html(
         let w = LabelWithWidgets::new();
         w.add_css_class("document");
         w.set_use_markup(true);
+        w.set_selectable(!config.ellipsize);
         w.set_ellipsize(config.ellipsize);
         w.set_label_and_widgets(text, widgets);
         Some(w.upcast())
     } else {
         let w = new_message_label();
         w.set_markup(&text);
+        w.set_selectable(!config.ellipsize);
         w.set_ellipsize(if config.ellipsize {
             pango::EllipsizeMode::End
         } else {

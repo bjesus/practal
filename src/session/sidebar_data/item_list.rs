@@ -8,7 +8,7 @@ use super::{
 use crate::session::{RoomCategory, RoomList, VerificationList};
 
 /// The number of top-level items in the sidebar.
-const TOP_LEVEL_ITEMS_COUNT: usize = 9;
+const TOP_LEVEL_ITEMS_COUNT: usize = 8;
 
 mod imp {
     use std::cell::OnceCell;
@@ -32,6 +32,10 @@ mod imp {
         /// The UI is updated to show possible drop actions for a room with the
         /// given category.
         show_all_for_room_category: Cell<Option<RoomCategory>>,
+        /// When set, the sidebar is in pinned-favorites + bottom-tabs mode,
+        /// hiding Favorites from the list and showing only this tab section
+        /// (Normal or LowPriority) without its collapsible header.
+        tab_mode_section: Cell<Option<SidebarSectionName>>,
     }
 
     #[glib::object_subclass]
@@ -52,7 +56,6 @@ mod imp {
 
             let list = self.list.get_or_init(|| {
                 [
-                    SidebarItem::new(SidebarIconItem::new(SidebarIconItemType::Explore)),
                     SidebarItem::new(SidebarSection::new(
                         SidebarSectionName::VerificationRequest,
                         &verification_list,
@@ -128,7 +131,58 @@ mod imp {
 
         /// Update the visibility of the given item.
         fn update_item_visibility(&self, item: &SidebarItem) {
+            if let Some(active_tab) = self.tab_mode_section.get()
+                && self.show_all_for_room_category.get().is_none()
+                && let Some(section) = item.inner_item().downcast_ref::<SidebarSection>()
+            {
+                match section.name() {
+                    SidebarSectionName::Favorite => {
+                        item.set_hide_header(false);
+                        item.set_visible(false);
+                        return;
+                    }
+                    SidebarSectionName::Normal | SidebarSectionName::LowPriority => {
+                        if section.name() == active_tab {
+                            item.set_hide_header(true);
+                            item.update_visibility_for_room_category(None);
+                        } else {
+                            item.set_hide_header(false);
+                            item.set_visible(false);
+                        }
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+
+            item.set_hide_header(false);
             item.update_visibility_for_room_category(self.show_all_for_room_category.get());
+        }
+
+        /// Set the active room tab section for pinned-favorites + bottom-tabs
+        /// mode, or `None` for normal collapsible list mode.
+        pub(super) fn set_tab_mode_section(&self, section: Option<SidebarSectionName>) {
+            if self.tab_mode_section.get() == section {
+                return;
+            }
+
+            self.tab_mode_section.set(section);
+            for item in self.list() {
+                if item
+                    .inner_item()
+                    .downcast_ref::<SidebarSection>()
+                    .is_some_and(|s| {
+                        matches!(
+                            s.name(),
+                            SidebarSectionName::Favorite
+                                | SidebarSectionName::Normal
+                                | SidebarSectionName::LowPriority
+                        )
+                    })
+                {
+                    self.update_item_visibility(item);
+                }
+            }
         }
 
         /// Set whether to inhibit the expanded state of the sections.
@@ -176,12 +230,18 @@ impl SidebarItemList {
         self.imp().inhibit_expanded(inhibit);
     }
 
+    /// Set the active room tab section for pinned-favorites + bottom-tabs mode,
+    /// or `None` for normal collapsible list mode.
+    pub(crate) fn set_tab_mode_section(&self, section: Option<SidebarSectionName>) {
+        self.imp().set_tab_mode_section(section);
+    }
+
     /// Returns the [`SidebarSection`] for the given room category.
     pub(crate) fn section_from_room_category(
         &self,
         category: RoomCategory,
     ) -> Option<SidebarSection> {
-        const FIRST_ROOM_SECTION_INDEX: usize = 2;
+        const FIRST_ROOM_SECTION_INDEX: usize = 1;
 
         let index = match category {
             RoomCategory::Knocked => FIRST_ROOM_SECTION_INDEX,
