@@ -2,7 +2,7 @@
 Name=Practal
 Comment=Practal is a fork of Fractal, a decentralized, secure Matrix messaging client for GNOME.
 GenericName=Practal group messaging
-Exec=fractal %U
+Exec=practal %U
 # Translators: Do NOT translate or transliterate this text (this is an icon file name)!
 Icon=@icon@
 Type=Application

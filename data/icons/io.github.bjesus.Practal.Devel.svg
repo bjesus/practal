@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg-left-lip" x1="12" y1="88" x2="88" y2="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1e6b63"/>
+      <stop offset="0.15" stop-color="#35998e"/>
+      <stop offset="0.3" stop-color="#1e6b63"/>
+      <stop offset="1" stop-color="#1e6b63"/>
+    </linearGradient>
+    <linearGradient id="left-body" x1="12" y1="18" x2="84" y2="86" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3db5a7"/>
+      <stop offset="1" stop-color="#289488"/>
+    </linearGradient>
+    <linearGradient id="right-lip" x1="40" y1="112" x2="116" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1a5c3a"/>
+      <stop offset="0.7" stop-color="#1a5c3a"/>
+      <stop offset="0.85" stop-color="#2fa366"/>
+      <stop offset="1" stop-color="#1a5c3a"/>
+    </linearGradient>
+    <linearGradient id="right-body" x1="42" y1="44" x2="114" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#57e389"/>
+      <stop offset="1" stop-color="#26a269"/>
+    </linearGradient>
+    <clipPath id="devel-clip">
+      <rect x="64" y="10" width="54" height="22" rx="6"/>
+    </clipPath>
+  </defs>
+
+  <!-- Left (other's) bubble bottom lip + tail -->
+  <path d="M 28 24 H 74 C 82.8 24 90 31.2 90 40 V 72 C 90 80.8 82.8 88 74 88 H 35 L 21 98 C 18.5 99.8 15 98 15 94.8 V 85.2 C 13.1 82.4 12 79 12 75.2 V 40 C 12 31.2 19.2 24 28 24 Z" fill="url(#bg-left-lip)"/>
+  <!-- Left bubble face -->
+  <path d="M 28 20 H 74 C 82.8 20 90 27.2 90 36 V 68 C 90 76.8 82.8 84 74 84 H 35 L 21 94 C 18.5 95.8 15 94 15 90.8 V 81.2 C 13.1 78.4 12 75 12 71.2 V 36 C 12 27.2 19.2 20 28 20 Z" fill="url(#left-body)"/>
+
+  <!-- Subtle message lines in left bubble -->
+  <rect x="24" y="37" width="38" height="6" rx="3" fill="#ffffff" fill-opacity="0.75"/>
+  <rect x="24" y="49" width="26" height="6" rx="3" fill="#ffffff" fill-opacity="0.5"/>
+
+  <!-- Right (own) bubble bottom lip + tail -->
+  <path d="M 54 48 H 100 C 108.8 48 116 55.2 116 64 V 96 C 116 99.8 114.9 103.2 113 106 V 115.6 C 113 118.8 109.5 120.6 107 118.8 L 93 108.8 H 54 C 45.2 108.8 38 101.6 38 92.8 V 64 C 38 55.2 45.2 48 54 48 Z" fill="url(#right-lip)"/>
+  <!-- Right bubble face -->
+  <path d="M 54 44 H 100 C 108.8 44 116 51.2 116 60 V 92 C 116 95.8 114.9 99.2 113 102 V 111.6 C 113 114.8 109.5 116.6 107 114.8 L 93 104.8 H 54 C 45.2 104.8 38 97.6 38 88.8 V 60 C 38 51.2 45.2 44 54 44 Z" fill="url(#right-body)"/>
+
+  <!-- Crisp checkmark inside right bubble -->
+  <path d="M 61 75 L 72 86 L 94 63" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Devel hazard stripe badge -->
+  <g clip-path="url(#devel-clip)">
+    <rect x="64" y="10" width="54" height="22" fill="#f5c211"/>
+    <path d="M 58 34 L 74 8 M 74 34 L 90 8 M 90 34 L 106 8 M 106 34 L 122 8" stroke="#241f31" stroke-width="7"/>
+  </g>
+</svg>

@@ -1,7 +1,7 @@
 <div align="center">
 
 <img
-    src="data/icons/org.gnome.Fractal.svg"
+    src="data/icons/io.github.bjesus.Practal.svg"
     alt=""
 />
 
