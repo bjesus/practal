@@ -23,6 +23,7 @@ jobs:
             git \
             meson \
             ninja \
+            mold \
             rust \
             blueprint-compiler \
             dart-sass \
