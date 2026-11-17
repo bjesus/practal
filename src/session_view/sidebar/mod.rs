@@ -960,6 +960,7 @@ impl Sidebar {
 /// state.
 fn update_badge_label(badge: &gtk::Label, count: u64, highlight: HighlightFlags, is_read: bool) {
     if count > 0 {
+        badge.set_size_request(-1, -1);
         badge.set_text(&count.to_string());
         badge.remove_css_class("pinned-unread-dot");
         badge.add_css_class("pinned-badge");
@@ -971,6 +972,7 @@ fn update_badge_label(badge: &gtk::Label, count: u64, highlight: HighlightFlags,
         badge.set_visible(true);
     } else if !is_read {
         badge.set_text("");
+        badge.set_size_request(8, 8);
         badge.remove_css_class("pinned-badge");
         badge.remove_css_class("highlight");
         badge.add_css_class("pinned-unread-dot");

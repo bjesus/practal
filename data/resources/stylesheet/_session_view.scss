@@ -194,56 +194,61 @@ sidebar {
       min-width: 24px;
     }
   }
+}
 
-  .pinned-favorites {
-    padding: 6px 8px;
+.pinned-favorites {
+  padding: 6px 8px;
 
-    flowboxchild {
-      padding: 0;
-      border-radius: 12px;
+  flowboxchild {
+    padding: 0;
+    border-radius: 12px;
+  }
+
+  .pinned-favorite-button {
+    padding: 6px;
+    border-radius: 12px;
+    min-width: 0;
+    min-height: 0;
+
+    &.selected {
+      background-color: color-mix(in srgb, currentColor 10%, transparent);
     }
 
-    .pinned-favorite-button {
-      padding: 6px;
-      border-radius: 12px;
-      min-width: 0;
-      min-height: 0;
+    .pinned-favorite-avatar {
+      border-radius: 9999px;
 
-      &.selected {
-        background-color: color-mix(in srgb, currentColor 10%, transparent);
+      &.unread {
+        outline: 2px solid var(--accent-color);
+        outline-offset: 2px;
       }
+    }
 
-      .pinned-favorite-avatar {
-        border-radius: 9999px;
+    .pinned-badge {
+      font-weight: bold;
+      font-size: 0.75em;
+      border-radius: 9999px;
+      min-width: 0.8em;
+      min-height: 0.8em;
+      line-height: 0.8em;
+      padding: 0.35em 5px;
+      color: currentColor;
+      background-color: color-mix(in srgb, currentColor 15%, var(--sidebar-bg-color, var(--view-bg-color)));
+      box-shadow: 0 0 0 1.5px var(--sidebar-bg-color, var(--view-bg-color));
 
-        &.unread {
-          outline: 2px solid var(--accent-color);
-          outline-offset: 2px;
-        }
-      }
-
-      .pinned-badge {
-        font-weight: bold;
-        font-size: 0.7em;
-        border-radius: 9999px;
-        min-width: 8px;
-        min-height: 8px;
-        padding: 2px 5px;
-        color: currentColor;
-        background-color: color-mix(in srgb, currentColor 18%, var(--view-bg-color));
-
-        &.highlight {
-          color: var(--accent-fg-color);
-          background-color: var(--accent-bg-color);
-        }
-      }
-
-      .pinned-unread-dot {
-        min-width: 8px;
-        min-height: 8px;
-        border-radius: 9999px;
+      &.highlight {
+        color: var(--accent-fg-color);
         background-color: var(--accent-bg-color);
       }
+    }
+
+    .pinned-unread-dot {
+      font-size: 0;
+      min-width: 8px;
+      min-height: 8px;
+      padding: 0;
+      border-radius: 9999px;
+      background-color: var(--accent-bg-color);
+      box-shadow: 0 0 0 1.5px var(--sidebar-bg-color, var(--view-bg-color));
     }
   }
 }

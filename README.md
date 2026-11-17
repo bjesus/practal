@@ -30,10 +30,8 @@ Compared to upstream Fractal, Practal adds:
 
 <div align="center">
 <img
-    src="https://gitlab.gnome.org/World/fractal/raw/main/screenshots/main.png"
-    alt="Fractal’s main window"
-    width="882"
-    height="672"
+    src="screenshots/main.png"
+    alt="Practal’s main window"
 />
 </div>
 
