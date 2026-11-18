@@ -27,5 +27,10 @@
       <default>""</default>
       <summary>Current session</summary>
     </key>
+    <key name="spellcheck-languages" type="as">
+      <default>[]</default>
+      <summary>Spell check languages</summary>
+      <description>List of language codes enabled for spell checking</description>
+    </key>
   </schema>
 </schemalist>

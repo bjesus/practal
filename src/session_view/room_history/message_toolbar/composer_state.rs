@@ -1,5 +1,5 @@
 use gtk::{
-    glib,
+    gio, glib,
     glib::{clone, closure_local},
     prelude::*,
     subclass::prelude::*,
@@ -18,6 +18,7 @@ use tracing::{error, warn};
 
 use super::ComposerParser;
 use crate::{
+    Application,
     components::{AvatarImageSafetySetting, Pill, PillSource},
     session::{Event, Member, Room, Timeline},
     spawn, spawn_tokio,
@@ -74,6 +75,10 @@ mod imp {
         fn default() -> Self {
             let buffer = sourceview::Buffer::default();
             let checker = spelling::Checker::default();
+            let langs = active_spellcheck_languages();
+            if !langs.is_empty() {
+                checker.set_language(&langs.join(","));
+            }
             let spelling_adapter = spelling::TextBufferAdapter::new(&buffer, &checker);
             spelling_adapter.set_enabled(true);
 
@@ -134,10 +139,23 @@ mod imp {
             if let Some(view) = view {
                 view.set_buffer(Some(&self.buffer));
 
-                // Set up spell checking on the view.
-                let extra_menu = self.spelling_adapter.menu_model();
+                // Set up spell checking on the view with multi-language support.
+                let (languages_menu, lang_actions) = build_spellcheck_languages_menu();
+                let adapter_menu = self.spelling_adapter.menu_model();
+                let extra_menu = gio::Menu::new();
+                mirror_menu_with_languages(&adapter_menu, &extra_menu, &languages_menu);
+                adapter_menu.connect_items_changed(clone!(
+                    #[weak]
+                    extra_menu,
+                    #[strong]
+                    languages_menu,
+                    move |menu, _, _, _| {
+                        mirror_menu_with_languages(menu, &extra_menu, &languages_menu);
+                    }
+                ));
                 view.set_extra_menu(Some(&extra_menu));
                 view.insert_action_group("spelling", Some(&self.spelling_adapter));
+                view.insert_action_group("practal-spelling", Some(&lang_actions));
 
                 self.update_widgets();
 
@@ -756,5 +774,140 @@ impl MessageEventSource {
                 .is_none_or(|mentions| mentions.room),
             Self::Event(event) => event.can_contain_at_room(),
         }
+    }
+}
+
+/// Return the currently enabled spellcheck language codes from GSettings,
+/// falling back to the provider's default language if none are stored.
+fn active_spellcheck_languages() -> Vec<String> {
+    let settings = Application::default().settings();
+    let stored = settings.strv("spellcheck-languages");
+    if !stored.is_empty() {
+        return stored.iter().map(|s| s.to_string()).collect();
+    }
+
+    spelling::Provider::default()
+        .default_code()
+        .map(|code| vec![code.to_string()])
+        .unwrap_or_default()
+}
+
+/// Build a checkbox submenu and action group for toggling multiple spellcheck
+/// languages simultaneously.
+fn build_spellcheck_languages_menu() -> (gio::Menu, gio::SimpleActionGroup) {
+    let menu = gio::Menu::new();
+    let action_group = gio::SimpleActionGroup::new();
+    let provider = spelling::Provider::default();
+    let languages = provider.list_languages();
+    let active = active_spellcheck_languages();
+
+    let mut lang_entries: Vec<(String, String)> = (0..languages.n_items())
+        .filter_map(|i| languages.item(i)?.downcast::<spelling::Language>().ok())
+        .filter_map(|lang| {
+            let code = lang.code()?.to_string();
+            let name = lang.name().map_or_else(|| code.clone(), |n| n.to_string());
+            Some((code, name))
+        })
+        .collect();
+    lang_entries.sort_by(|a, b| a.1.cmp(&b.1));
+
+    for (idx, (code, name)) in lang_entries.into_iter().enumerate() {
+        let action_name = format!("lang-{idx}");
+        let is_enabled = active.iter().any(|c| c == &code);
+        let action = gio::SimpleAction::new_stateful(&action_name, None, &is_enabled.to_variant());
+
+        let code_for_cb = code.clone();
+        action.connect_activate(move |action, _| {
+            let current = action
+                .state()
+                .and_then(|v| v.get::<bool>())
+                .unwrap_or(false);
+            let next = !current;
+            let mut langs = active_spellcheck_languages();
+            if next {
+                if !langs.iter().any(|c| c == &code_for_cb) {
+                    langs.push(code_for_cb.clone());
+                }
+            } else {
+                if langs.len() <= 1 && langs.iter().any(|c| c == &code_for_cb) {
+                    // Keep at least one language active; users can disable spell
+                    // checking via the "Check Spelling" toggle.
+                    return;
+                }
+                langs.retain(|c| c != &code_for_cb);
+            }
+
+            action.set_state(&next.to_variant());
+
+            let settings = Application::default().settings();
+            let refs: Vec<&str> = langs.iter().map(String::as_str).collect();
+            if let Err(error) = settings.set_strv("spellcheck-languages", refs) {
+                warn!("Could not save spellcheck languages: {error}");
+            }
+
+            spelling::Checker::default().set_language(&langs.join(","));
+        });
+
+        action_group.add_action(&action);
+        menu.append(Some(&name), Some(&format!("practal-spelling.{action_name}")));
+    }
+
+    (menu, action_group)
+}
+
+/// Whether `menu` (or any nested section) contains an item bound to
+/// `spelling.language`.
+fn menu_contains_language_action(menu: &gio::MenuModel) -> bool {
+    for i in 0..menu.n_items() {
+        if let Some(action) = menu
+            .item_attribute_value(i, gio::MENU_ATTRIBUTE_ACTION, Some(glib::VariantTy::STRING))
+            .and_then(|v| v.get::<String>())
+            && action == "spelling.language"
+        {
+            return true;
+        }
+        if let Some(section) = menu.item_link(i, gio::MENU_LINK_SECTION)
+            && menu_contains_language_action(&section)
+        {
+            return true;
+        }
+        if let Some(submenu) = menu.item_link(i, gio::MENU_LINK_SUBMENU)
+            && menu_contains_language_action(&submenu)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Mirror `src` into `dst`, replacing libspelling's single-language radio
+/// submenu with `languages_menu`.
+fn mirror_menu_with_languages(
+    src: &gio::MenuModel,
+    dst: &gio::Menu,
+    languages_menu: &gio::Menu,
+) {
+    dst.remove_all();
+
+    for i in 0..src.n_items() {
+        let item = gio::MenuItem::new(None, None);
+
+        let attr_iter = src.iterate_item_attributes(i);
+        while let Some((name, value)) = attr_iter.next() {
+            item.set_attribute_value(name.as_str(), Some(&value));
+        }
+
+        let link_iter = src.iterate_item_links(i);
+        while let Some((link_name, linked)) = link_iter.next() {
+            if link_name == gio::MENU_LINK_SUBMENU && menu_contains_language_action(&linked) {
+                item.set_submenu(Some(languages_menu));
+            } else {
+                let mirrored_child = gio::Menu::new();
+                mirror_menu_with_languages(&linked, &mirrored_child, languages_menu);
+                item.set_link(link_name.as_str(), Some(&mirrored_child));
+            }
+        }
+
+        dst.append_item(&item);
     }
 }
