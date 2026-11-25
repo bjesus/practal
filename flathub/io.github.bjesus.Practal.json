@@ -1,0 +1,130 @@
+{
+    "app-id": "io.github.bjesus.Practal",
+    "runtime": "org.gnome.Platform",
+    "runtime-version": "50",
+    "sdk": "org.gnome.Sdk",
+    "sdk-extensions": [
+        "org.freedesktop.Sdk.Extension.rust-stable"
+    ],
+    "command": "practal",
+    "finish-args": [
+        "--share=network",
+        "--share=ipc",
+        "--socket=fallback-x11",
+        "--socket=wayland",
+        "--socket=pulseaudio",
+        "--device=dri"
+    ],
+    "build-options": {
+        "append-path": "/usr/lib/sdk/rust-stable/bin",
+        "env": {
+            "CARGO_PROFILE_RELEASE_LTO": "off",
+            "CARGO_PROFILE_RELEASE_DEBUG": "0"
+        }
+    },
+    "modules": [
+        {
+            "name": "grass",
+            "buildsystem": "simple",
+            "build-options": {
+                "env": {
+                    "CARGO_HOME": "/run/build/grass/cargo"
+                }
+            },
+            "build-commands": [
+                "cargo build --release --locked",
+                "mkdir -p /app/bin",
+                "install -D ./target/release/grass /app/bin/"
+            ],
+            "cleanup": [
+                "*"
+            ],
+            "sources": [
+                {
+                    "type": "git",
+                    "url": "https://github.com/connorskees/grass",
+                    "tag": "0.13.4",
+                    "commit": "e0bb9e2eabfc3a58e42b03089cd7b22c68d09d0b"
+                },
+                "grass-cargo-sources.json"
+            ]
+        },
+        {
+            "name": "protobuf-c",
+            "buildsystem": "autotools",
+            "config-opts": [
+                "--disable-protoc"
+            ],
+            "sources": [
+                {
+                    "type": "git",
+                    "url": "https://github.com/protobuf-c/protobuf-c.git",
+                    "tag": "v1.5.2",
+                    "commit": "4719fdd7760624388c2c5b9d6759eb6a47490626"
+                }
+            ]
+        },
+        {
+            "name": "libshumate",
+            "buildsystem": "meson",
+            "config-opts": [
+                "-Dvapi=false",
+                "-Dgtk_doc=false",
+                "-Dvector_renderer=true",
+                "--libdir=lib"
+            ],
+            "sources": [
+                {
+                    "type": "git",
+                    "url": "https://gitlab.gnome.org/GNOME/libshumate.git",
+                    "tag": "1.7.0",
+                    "commit": "e345c805a0dfc46cdbff46cac287b0b60a386f36"
+                }
+            ]
+        },
+        {
+            "name": "libspelling",
+            "buildsystem": "meson",
+            "config-opts": [
+                "-Dvapi=false",
+                "-Ddocs=false",
+                "--libdir=lib"
+            ],
+            "sources": [
+                {
+                    "type": "git",
+                    "url": "https://gitlab.gnome.org/GNOME/libspelling.git",
+                    "tag": "0.4.10",
+                    "commit": "1facdde8e1c0fd72bed806f9a9be2fbec83af5f2"
+                },
+                {
+                    "type": "patch",
+                    "path": "libspelling-fix-child-anchor-crash.patch"
+                }
+            ]
+        },
+        {
+            "name": "practal",
+            "buildsystem": "meson",
+            "config-opts": [
+                "-Dprofile=default"
+            ],
+            "sources": [
+                {
+                    "type": "git",
+                    "url": "https://github.com/bjesus/practal.git",
+                    "tag": "v14.3.6",
+                    "commit": "1d35c49be406a0e591016e91223c6b7da4960299"
+                },
+                "practal-cargo-sources.json",
+                {
+                    "type": "shell",
+                    "commands": [
+                        "sed -i 's/, \"-C\", \"link-arg=-fuse-ld=mold\"//' .cargo/config.toml",
+                        "cat cargo/config >> .cargo/config.toml"
+                    ]
+                }
+            ]
+        }
+    ]
+}

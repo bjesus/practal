@@ -1,0 +1,113 @@
+diff --git a/lib/cjhtextregion.c b/lib/cjhtextregion.c
+index dffbc42..883c2ff 100644
+--- a/lib/cjhtextregion.c
++++ b/lib/cjhtextregion.c
+@@ -675,7 +675,12 @@ _cjh_text_region_insert (CjhTextRegion *region,
+   guint i;
+ 
+   g_assert (region != NULL);
+-  g_assert (offset <= region->length);
++
++  /* Grow the region to cover any gap when the buffer is out of sync,
++   * such as after a GtkTextChildAnchor insertion (see #4). */
++  if G_UNLIKELY (offset > region->length)
++    _cjh_text_region_insert (region, region->length,
++                             offset - region->length, data);
+ 
+   if (length == 0)
+     return;
+@@ -1102,14 +1107,19 @@ _cjh_text_region_remove (CjhTextRegion *region,
+ {
+   CjhTextRegionNode *target;
+   gsize offset_within_node;
+-  gsize to_remove = length;
++  gsize to_remove;
+   gsize calc_offset;
+   guint i;
+ 
+   g_assert (region != NULL);
+-  g_assert (length <= region->length);
+-  g_assert (offset < region->length);
+-  g_assert (length <= region->length - offset);
++
++  /* Clamp to region bounds when buffer is out of sync (see #4). */
++  if G_UNLIKELY (offset >= region->length)
++    return;
++  if G_UNLIKELY (length > region->length - offset)
++    length = region->length - offset;
++
++  to_remove = length;
+ 
+   if (length == 0)
+     return;
+diff --git a/testsuite/test-region.c b/testsuite/test-region.c
+index 147cc35..cbdb7ad 100644
+--- a/testsuite/test-region.c
++++ b/testsuite/test-region.c
+@@ -682,6 +682,58 @@ full_tail_node (void)
+   _cjh_text_region_free (region);
+ }
+ 
++static void
++insert_beyond_length (void)
++{
++  /* Simulate what happens when a GtkTextChildAnchor is inserted into a
++   * buffer and the region hasn't tracked the anchor's position yet.
++   * The insert offset is beyond the region's current length.
++   * This should not crash — the region should grow to accommodate.
++   */
++  CjhTextRegion *region = _cjh_text_region_new (NULL, NULL);
++
++  /* Start with some text. */
++  _cjh_text_region_insert (region, 0, 10, GUINT_TO_POINTER (1));
++  g_assert_cmpint (_cjh_text_region_get_length (region), ==, 10);
++
++  /* Insert beyond the end — simulates out-of-sync child anchor. */
++  _cjh_text_region_insert (region, 15, 1, GUINT_TO_POINTER (2));
++  /* Region should have grown: 10 (original) + 5 (gap) + 1 (new) = 16 */
++  g_assert_cmpint (_cjh_text_region_get_length (region), ==, 16);
++
++  /* Normal insert should still work. */
++  _cjh_text_region_insert (region, 16, 5, GUINT_TO_POINTER (3));
++  g_assert_cmpint (_cjh_text_region_get_length (region), ==, 21);
++
++  _cjh_text_region_free (region);
++}
++
++static void
++remove_beyond_length (void)
++{
++  /* Simulate remove with out-of-sync parameters.
++   * This should not crash — the region should clamp gracefully.
++   */
++  CjhTextRegion *region = _cjh_text_region_new (NULL, NULL);
++
++  _cjh_text_region_insert (region, 0, 10, GUINT_TO_POINTER (1));
++  g_assert_cmpint (_cjh_text_region_get_length (region), ==, 10);
++
++  /* Remove with offset beyond length — should be a no-op. */
++  _cjh_text_region_remove (region, 15, 1);
++  g_assert_cmpint (_cjh_text_region_get_length (region), ==, 10);
++
++  /* Remove with length exceeding what remains — should clamp. */
++  _cjh_text_region_remove (region, 5, 20);
++  g_assert_cmpint (_cjh_text_region_get_length (region), ==, 5);
++
++  /* Normal remove should still work. */
++  _cjh_text_region_remove (region, 0, 5);
++  g_assert_cmpint (_cjh_text_region_get_length (region), ==, 0);
++
++  _cjh_text_region_free (region);
++}
++
+ int
+ main (int argc,
+       char *argv[])
+@@ -700,5 +752,7 @@ main (int argc,
+   g_test_add_func ("/Cjh/TextRegion/words_database", test_words_database);
+   g_test_add_func ("/Cjh/TextRegion/get_run_at_offset", get_run_at_offset);
+   g_test_add_func ("/Cjh/TextRegion/full_tail_node", full_tail_node);
++  g_test_add_func ("/Cjh/TextRegion/insert_beyond_length", insert_beyond_length);
++  g_test_add_func ("/Cjh/TextRegion/remove_beyond_length", remove_beyond_length);
+   return g_test_run ();
+ }
