@@ -196,10 +196,6 @@ template $Sidebar: Adw.NavigationPage {
         ]
       }
 
-      Gtk.Separator pinned_favorites_separator {
-        visible: bind pinned_favorites_box.visible;
-      }
-
       Stack room_stack {
         transition-type: crossfade;
 
@@ -256,10 +252,6 @@ template $Sidebar: Adw.NavigationPage {
           title: _("Low Priority");
           child: Gtk.Box {};
         }
-      }
-
-      Gtk.Separator room_tabs_separator {
-        visible: bind room_tabs_switcher.visible;
       }
 
       Adw.InlineViewSwitcher room_tabs_switcher {

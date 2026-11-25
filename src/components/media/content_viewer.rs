@@ -142,8 +142,9 @@ mod imp {
                 picture
             } else {
                 let picture = gtk::Picture::builder()
-                    .valign(gtk::Align::Center)
-                    .halign(gtk::Align::Center)
+                    .content_fit(gtk::ContentFit::Contain)
+                    .hexpand(true)
+                    .vexpand(true)
                     .build();
                 self.viewer.set_child(Some(&picture));
                 picture
@@ -214,8 +215,8 @@ mod imp {
                     } else {
                         let video = gtk::Video::builder()
                             .autoplay(self.autoplay.get())
-                            .valign(gtk::Align::Center)
-                            .halign(gtk::Align::Center)
+                            .hexpand(true)
+                            .vexpand(true)
                             .build();
                         self.viewer.set_child(Some(&video));
                         video

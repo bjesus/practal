@@ -233,18 +233,34 @@ mod imp {
             }
 
             self.fullscreened.set(fullscreened);
+            self.update_media_alignment();
 
             if fullscreened {
-                // Upscale the media on fullscreen.
-                self.media.set_halign(gtk::Align::Fill);
                 self.toolbar_view
                     .set_top_bar_style(adw::ToolbarStyle::Raised);
             } else {
-                self.media.set_halign(gtk::Align::Center);
                 self.toolbar_view.set_top_bar_style(adw::ToolbarStyle::Flat);
             }
 
             self.obj().notify_fullscreened();
+        }
+
+        /// Update `self.media` alignment so videos and fullscreen media scale
+        /// to fill the viewer while preserving aspect ratio.
+        fn update_media_alignment(&self) {
+            let is_video = self
+                .message
+                .borrow()
+                .as_ref()
+                .is_some_and(|m| matches!(m, VisualMediaMessage::Video(_)));
+
+            if self.fullscreened.get() || is_video {
+                self.media.set_halign(gtk::Align::Fill);
+                self.media.set_valign(gtk::Align::Fill);
+            } else {
+                self.media.set_halign(gtk::Align::Center);
+                self.media.set_valign(gtk::Align::Center);
+            }
         }
 
         /// Set the media message to display.
@@ -296,6 +312,7 @@ mod imp {
             };
             self.set_filename(filename);
             self.message.replace(Some(message));
+            self.update_media_alignment();
 
             let can_prev = index > 0;
             let can_next = index + 1 < total;
