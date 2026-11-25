@@ -138,10 +138,33 @@ mod imp {
                 true,
                 move |obj| {
                     // Hide the timeline start item if we have the `m.room.create` event too.
-                    obj.downcast_ref::<VirtualItem>().is_none_or(|item| {
-                        !(imp.has_room_create.get()
-                            && item.kind() == VirtualItemKind::TimelineStart)
-                    })
+                    if let Some(item) = obj.downcast_ref::<VirtualItem>() {
+                        return !(imp.has_room_create.get()
+                            && item.kind() == VirtualItemKind::TimelineStart);
+                    }
+
+                    // Only show failed-to-parse placeholders for actual chat messages
+                    // (`m.room.message` / `m.sticker`), hiding noisy state/metadata parse errors.
+                    if let Some(event) = obj.downcast_ref::<Event>() {
+                        match event.content() {
+                            matrix_sdk_ui::timeline::TimelineItemContent::FailedToParseState {
+                                ..
+                            } => return false,
+                            matrix_sdk_ui::timeline::TimelineItemContent::FailedToParseMessageLike {
+                                event_type,
+                                ..
+                            } => {
+                                return matches!(
+                                    event_type,
+                                    ruma::events::MessageLikeEventType::RoomMessage
+                                        | ruma::events::MessageLikeEventType::Sticker
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    true
                 }
             ));
             self.filtered_sdk_items.set_filter(Some(&self.filter));
@@ -197,7 +220,7 @@ mod imp {
                 matrix_room
                     .timeline_builder()
                     .event_filter(filter)
-                    .add_failed_to_parse(false)
+                    .add_failed_to_parse(true)
                     .build()
                     .await
             });

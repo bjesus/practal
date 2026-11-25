@@ -29,9 +29,10 @@ use ruma::{
 use thiserror::Error;
 
 pub(crate) mod ext_traits;
+mod floe;
 mod media_message;
 
-pub(crate) use self::media_message::*;
+pub(crate) use self::{floe::get_media_content, media_message::*};
 use crate::{
     components::{AvatarImageSafetySetting, Pill},
     prelude::*,

@@ -1,6 +1,9 @@
 use gettextrs::gettext;
 use gtk::{gio, glib, prelude::*};
-use matrix_sdk::Client;
+use matrix_sdk::{
+    Client,
+    media::{MediaEventContent, MediaFormat, MediaRequestParameters},
+};
 use ruma::events::{
     room::message::{
         AudioMessageEventContent, FileMessageEventContent, FormattedBody, ImageMessageEventContent,
@@ -173,28 +176,24 @@ impl MediaMessage {
     ///
     /// Returns an error if something occurred while fetching the content.
     pub(crate) async fn into_content(self, client: &Client) -> Result<Vec<u8>, matrix_sdk::Error> {
-        let media = client.media();
-
-        macro_rules! content {
-            ($event_content:expr) => {{
-                Ok(
-                    $crate::spawn_tokio!(
-                        async move { media.get_file(&$event_content, true).await }
-                    )
-                    .await
-                    .unwrap()?
-                    .expect("All media message types have a file"),
-                )
-            }};
+        let source = match self {
+            Self::Audio(c) => c.source(),
+            Self::File(c) => c.source(),
+            Self::Image(c) => c.source(),
+            Self::Video(c) => c.source(),
+            Self::Sticker(c) => c.source(),
         }
+        .expect("All media message types have a source");
 
-        match self {
-            Self::Audio(c) => content!(c),
-            Self::File(c) => content!(c),
-            Self::Image(c) => content!(c),
-            Self::Video(c) => content!(c),
-            Self::Sticker(c) => content!(*c),
-        }
+        let client = client.clone();
+        let settings = MediaRequestParameters {
+            source,
+            format: MediaFormat::File,
+        };
+
+        crate::spawn_tokio!(async move { super::get_media_content(&client, &settings, true).await })
+            .await
+            .unwrap()
     }
 
     /// Fetch the content of the media with the given client and write it to a

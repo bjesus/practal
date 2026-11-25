@@ -31,6 +31,7 @@ codegen-units = 16
 as_variant = "1"
 blurhash = "0.2"
 eyeball = "0.8"
+fast-floe = "0.3.5"
 futures-channel = "0.3"
 futures-util = "0.3"
 geo-uri = "0.2"
@@ -166,6 +167,10 @@ gtk4-sys = { version = "0.11" }
 [patch."https://gitlab.gnome.org/World/Rust/sourceview5-rs"]
 sourceview5 = { version = "0.11" }
 sourceview5-sys = { version = "0.11" }
+
+# Patch ruma-events to allow optional `hashes` on EncryptedFile (MSC4571 / FLOE).
+[patch."https://github.com/ruma/ruma.git"]
+ruma-events = { path = "patches/ruma-events" }
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

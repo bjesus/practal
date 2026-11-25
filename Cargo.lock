@@ -226,6 +226,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "048006790404103c488e6c5616b3e7e702a71292aadda08e8f7698a9e0d2eb53"
 dependencies = [
  "aws-lc-sys",
+ "untrusted 0.7.1",
  "zeroize",
 ]
 
@@ -1027,6 +1028,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "fast-floe"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88470e3189942a9dad9de23f5637d3c562f3ecc9d33f56827ee389a349960275"
+dependencies = [
+ "aws-lc-rs",
+ "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -3634,6 +3646,7 @@ dependencies = [
  "ashpd",
  "blurhash",
  "eyeball",
+ "fast-floe",
  "futures-channel",
  "futures-util",
  "geo-uri",
@@ -4042,7 +4055,7 @@ dependencies = [
  "cfg-if",
  "getrandom 0.2.17",
  "libc",
- "untrusted",
+ "untrusted 0.9.0",
  "windows-sys 0.52.0",
 ]
 
@@ -4150,7 +4163,6 @@ dependencies = [
 [[package]]
 name = "ruma-events"
 version = "0.35.2"
-source = "git+https://github.com/ruma/ruma.git?rev=f99fc5c53a7ee3057a9203f76a0ad12839d67be6#f99fc5c53a7ee3057a9203f76a0ad12839d67be6"
 dependencies = [
  "as_variant",
  "indexmap",
@@ -4354,7 +4366,7 @@ dependencies = [
  "aws-lc-rs",
  "ring",
  "rustls-pki-types",
- "untrusted",
+ "untrusted 0.9.0",
 ]
 
 [[package]]
@@ -5339,6 +5351,12 @@ dependencies = [
  "crypto-common 0.2.2",
  "ctutils",
 ]
+
+[[package]]
+name = "untrusted"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
 
 [[package]]
 name = "untrusted"

@@ -327,6 +327,14 @@ trait MessageContentContainer: ChildPropertyExt {
                     child.set_info(MessageInfoIcon::Warning, &gettext("Unsupported event"));
                 }
             },
+            TimelineItemContent::FailedToParseMessageLike { event_type, error } => {
+                warn!("Failed to parse message-like event ({event_type}): {error}");
+                let child = self.child_or_default::<MessageInfo>();
+                child.set_info(
+                    MessageInfoIcon::Warning,
+                    &format!("Could not display this message ({event_type})"),
+                );
+            }
             content => {
                 warn!("Unsupported event content: {content:?}");
                 let child = self.child_or_default::<MessageInfo>();

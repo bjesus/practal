@@ -1,0 +1,119 @@
+[package]
+name = "ruma-events"
+version = "0.35.2"
+description = "Serializable types for the events in the Matrix specification."
+homepage = "https://ruma.dev/"
+keywords = ["matrix", "chat", "messaging", "ruma"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/ruma/ruma"
+edition = "2024"
+rust-version = "1.89"
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+html = ["dep:ruma-html"]
+markdown = ["dep:pulldown-cmark"]
+
+unstable-msc1763 = []
+unstable-msc1767 = []
+unstable-msc2448 = []
+unstable-msc2747 = []
+unstable-msc2867 = []
+unstable-msc3230 = []
+unstable-msc3245 = ["unstable-msc3246"]
+# Support the m.room.message fallback fields from the first version of MSC3245,
+# implemented in Element Web and documented at
+# https://github.com/matrix-org/matrix-spec-proposals/blob/83f6c5b469c1d78f714e335dcaa25354b255ffa5/proposals/3245-voice-messages.md
+unstable-msc3245-v1-compat = []
+unstable-msc3246 = ["unstable-msc3927"]
+unstable-msc3381 = ["unstable-msc1767"]
+unstable-msc3401 = []
+unstable-msc3417 = ["ruma-common/unstable-msc3417"]
+unstable-msc3488 = ["unstable-msc1767"]
+unstable-msc3489 = ["unstable-msc3488"]
+unstable-msc3551 = ["unstable-msc3956"]
+unstable-msc3552 = ["unstable-msc3551"]
+unstable-msc3553 = ["unstable-msc3552"]
+unstable-msc3554 = ["unstable-msc1767"]
+unstable-msc3927 = ["unstable-msc3551"]
+unstable-msc3954 = ["unstable-msc1767"]
+unstable-msc3955 = ["unstable-msc1767"]
+unstable-msc3956 = ["unstable-msc1767"]
+unstable-msc4075 = ["unstable-msc3401"]
+unstable-msc4095 = []
+unstable-msc4171 = []
+unstable-msc4274 = []
+unstable-msc4278 = []
+unstable-msc4293 = []
+unstable-msc4310 = []
+unstable-msc4319 = []
+unstable-msc4334 = ["dep:language-tags"]
+# Sticky Events
+unstable-msc4354 = []
+unstable-msc4359 = []
+unstable-msc4362 = []
+unstable-msc4380 = []
+unstable-msc4385 = []
+unstable-msc4471 = []
+unstable-msc4494 = []
+unstable-msc4495 = []
+unstable-msc4546 = []
+unstable-msc4560 = []
+unstable-uniffi = ["dep:uniffi"]
+
+# Allow some mandatory fields to be missing, defaulting them to an empty string
+# in deserialization.
+compat-empty-string-null = []
+
+# Allow certain fields to be absent even though the spec marks them as
+# mandatory. Deserialization will yield a default value like an empty string.
+compat-optional = []
+
+# Allow TagInfo to contain a stringified floating-point value for the `order` field.
+compat-tag-info = []
+
+# Support encrypted stickers, as sent by several bridges.
+# https://github.com/matrix-org/matrix-spec/issues/1667
+compat-encrypted-stickers = []
+
+# The predecessor field of RoomCreateEventContent is ignored if its
+# deserialization fails.
+compat-lax-room-create-deser = []
+
+# The topic_block (`m.topic`) field of RoomTopicEventContent is ignored if its
+# deserialization fails.
+compat-lax-room-topic-deser = []
+
+# Private feature used for benchmarks.
+__criterion = ["dep:criterion"]
+
+[dependencies]
+as_variant = "1.2.0"
+indexmap = { version = "2.0.0", features = ["serde"] }
+js_int = { version = "0.2.2", features = ["serde"] }
+js_option = "0.2.0"
+language-tags = { version = "0.3.2", features = ["serde"], optional = true }
+pulldown-cmark = { version = "0.13.0", optional = true, default-features = false, features = ["html"] }
+ruma-common = { version = "0.20.2", git = "https://github.com/ruma/ruma.git", rev = "f99fc5c53a7ee3057a9203f76a0ad12839d67be6" }
+ruma-html = { version = "0.9.0", git = "https://github.com/ruma/ruma.git", rev = "f99fc5c53a7ee3057a9203f76a0ad12839d67be6", optional = true }
+ruma-macros = { version = "=0.20.2", git = "https://github.com/ruma/ruma.git", rev = "f99fc5c53a7ee3057a9203f76a0ad12839d67be6" }
+serde = { version = "1.0.164", features = ["derive"] }
+serde_json = { version = "1.0.87", features = ["raw_value"] }
+thiserror = "2.0.0"
+tracing = { version = "0.1.37", default-features = false, features = ["std", "attributes"] }
+uniffi = { version = "0.32.0", default-features = false, features = ["wasm-unstable-single-threaded"], optional = true }
+web-time = "1.1.0"
+wildmatch = "2.6.1"
+zeroize = "1.9.0"
+
+# dev-dependencies can't be optional, so this is a regular dependency
+criterion = { version = "0.8.2", optional = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(ruma_identifiers_storage, values("Arc", "SmallVec", "ThinArc"))',
+    'cfg(ruma_unstable_exhaustive_types)',
+] }

@@ -483,11 +483,12 @@ impl IntoFuture for DownloadRequest {
         } = self;
 
         Box::pin(async move {
-            let media = client.media();
-            let data = spawn_tokio!(async move { media.get_media_content(&settings, true).await })
-                .await
-                .expect("task should not be aborted")
-                .map_err(MediaFileError::from)?;
+            let data = spawn_tokio!(async move {
+                crate::utils::matrix::get_media_content(&client, &settings, true).await
+            })
+            .await
+            .expect("task should not be aborted")
+            .map_err(MediaFileError::from)?;
 
             let file = ImageDecoderSource::with_bytes(data).await?;
 
