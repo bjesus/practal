@@ -8,6 +8,7 @@ mod content;
 mod file;
 mod info;
 mod location;
+mod media_group;
 mod message_state_stack;
 mod reaction;
 mod reaction_list;
@@ -16,7 +17,10 @@ mod sender_name;
 mod text;
 mod visual_media;
 
-pub use self::content::{ContentFormat, MessageContent};
+pub use self::{
+    content::{ContentFormat, MessageContent},
+    media_group::MediaGroupRow,
+};
 use self::{
     message_state_stack::MessageStateStack, reaction_list::MessageReactionList,
     sender_name::MessageSenderName,

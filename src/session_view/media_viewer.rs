@@ -40,6 +40,10 @@ mod imp {
         revealer: TemplateChild<ScaleRevealer>,
         #[template_child]
         media: TemplateChild<MediaContentViewer>,
+        #[template_child]
+        prev_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        next_button: TemplateChild<gtk::Button>,
         /// Whether the viewer is fullscreened.
         #[property(get, set = Self::set_fullscreened, explicit_notify)]
         fullscreened: Cell<bool>,
@@ -50,6 +54,10 @@ mod imp {
         event_id: RefCell<Option<OwnedEventId>>,
         /// The media message to display.
         message: RefCell<Option<VisualMediaMessage>>,
+        /// The album items when viewing a grouped media album.
+        items: RefCell<Vec<(Option<OwnedEventId>, VisualMediaMessage)>>,
+        /// The index of the currently displayed item in `items`.
+        current_index: Cell<usize>,
         /// The filename of the media.
         #[property(get)]
         filename: RefCell<Option<String>>,
@@ -80,6 +88,24 @@ mod imp {
                 gdk::Key::Escape,
                 gdk::ModifierType::empty(),
                 "media-viewer.close",
+            );
+
+            klass.install_action("media-viewer.previous", None, |obj, _, _| {
+                obj.imp().show_previous();
+            });
+            klass.add_binding_action(
+                gdk::Key::Left,
+                gdk::ModifierType::empty(),
+                "media-viewer.previous",
+            );
+
+            klass.install_action("media-viewer.next", None, |obj, _, _| {
+                obj.imp().show_next();
+            });
+            klass.add_binding_action(
+                gdk::Key::Right,
+                gdk::ModifierType::empty(),
+                "media-viewer.next",
             );
 
             // Menu actions
@@ -228,10 +254,57 @@ mod imp {
             message: VisualMediaMessage,
             event_id: Option<OwnedEventId>,
         ) {
+            self.set_album(room, vec![(event_id, message)], 0);
+        }
+
+        /// Set an album of media messages to display, starting at `index`.
+        pub(super) fn set_album(
+            &self,
+            room: &Room,
+            items: Vec<(Option<OwnedEventId>, VisualMediaMessage)>,
+            index: usize,
+        ) {
+            if items.is_empty() {
+                return;
+            }
+            let index = index.min(items.len() - 1);
+
             self.room.set(Some(room));
+            self.items.replace(items);
+            self.show_index(index);
+            self.obj().notify_room();
+        }
+
+        /// Display the item at `index` in `self.items`.
+        fn show_index(&self, index: usize) {
+            let (total, item) = {
+                let items = self.items.borrow();
+                let Some(item) = items.get(index).cloned() else {
+                    return;
+                };
+                (items.len(), item)
+            };
+
+            let (event_id, message) = item;
+            self.current_index.set(index);
             self.event_id.replace(event_id);
-            self.set_filename(message.filename());
+
+            let filename = if total > 1 {
+                format!("{} ({} / {})", message.filename(), index + 1, total)
+            } else {
+                message.filename()
+            };
+            self.set_filename(filename);
             self.message.replace(Some(message));
+
+            let can_prev = index > 0;
+            let can_next = index + 1 < total;
+            self.prev_button.set_visible(can_prev);
+            self.next_button.set_visible(can_next);
+
+            let obj = self.obj();
+            obj.action_set_enabled("media-viewer.previous", can_prev);
+            obj.action_set_enabled("media-viewer.next", can_next);
 
             self.update_menu_actions();
             self.media.show_loading();
@@ -240,11 +313,26 @@ mod imp {
                 #[weak(rename_to = imp)]
                 self,
                 async move {
-                    imp.build().await;
+                    imp.build(index).await;
                 }
             ));
+        }
 
-            self.obj().notify_room();
+        /// Show the previous item in the album, if any.
+        fn show_previous(&self) {
+            let index = self.current_index.get();
+            if index > 0 {
+                self.show_index(index - 1);
+            }
+        }
+
+        /// Show the next item in the album, if any.
+        fn show_next(&self) {
+            let index = self.current_index.get();
+            let len = self.items.borrow().len();
+            if index + 1 < len {
+                self.show_index(index + 1);
+            }
         }
 
         /// Set the filename of the media.
@@ -264,8 +352,10 @@ mod imp {
                     #[weak(rename_to = imp)]
                     self,
                     move |value| {
-                        // Fade the header bar content too.
+                        // Fade the header bar and navigation buttons too.
                         imp.header_bar.set_opacity(value);
+                        imp.prev_button.set_opacity(value);
+                        imp.next_button.set_opacity(value);
 
                         imp.obj().queue_draw();
                     }
@@ -374,8 +464,8 @@ mod imp {
             obj.action_set_enabled("media-viewer.permalink", has_event_id);
         }
 
-        /// Build the content of this viewer.
-        async fn build(&self) {
+        /// Build the content of this viewer for the item at `target_index`.
+        async fn build(&self, target_index: usize) {
             let Some(session) = self.room.upgrade().and_then(|r| r.session()) else {
                 return;
             };
@@ -386,7 +476,14 @@ mod imp {
             let content_type = message.content_type();
 
             let client = session.client();
-            match message.into_tmp_file(&client).await {
+            let result = message.into_tmp_file(&client).await;
+
+            // Ignore stale loads if the user already navigated to another item.
+            if self.current_index.get() != target_index {
+                return;
+            }
+
+            match result {
                 Ok(file) => {
                     self.media.view_file(file, Some(content_type)).await;
                 }
@@ -547,5 +644,16 @@ impl MediaViewer {
         event_id: Option<OwnedEventId>,
     ) {
         self.imp().set_message(room, message, event_id);
+    }
+
+    /// Set an album of media messages to display in the given room, starting
+    /// at `index`.
+    pub(crate) fn set_album(
+        &self,
+        room: &Room,
+        items: Vec<(Option<OwnedEventId>, VisualMediaMessage)>,
+        index: usize,
+    ) {
+        self.imp().set_album(room, items, index);
     }
 }

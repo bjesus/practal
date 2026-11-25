@@ -577,6 +577,19 @@ mod imp {
             self.media_viewer.reveal(source_widget);
         }
 
+        /// Show the given album of media events in the media viewer, starting
+        /// at `index`.
+        pub(super) fn show_media_album(
+            &self,
+            source_widget: &gtk::Widget,
+            room: &Room,
+            items: Vec<(Option<OwnedEventId>, VisualMediaMessage)>,
+            index: usize,
+        ) {
+            self.media_viewer.set_album(room, items, index);
+            self.media_viewer.reveal(source_widget);
+        }
+
         /// Show the profile of the given user.
         pub(super) fn show_user_profile_dialog(&self, user_id: OwnedUserId) {
             let Some(session) = self.session.upgrade() else {
@@ -665,6 +678,19 @@ impl SessionView {
     ) {
         self.imp()
             .show_media_viewer(source_widget.upcast_ref(), room, media_message, event_id);
+    }
+
+    /// Show the given album of media events in the media viewer, starting at
+    /// `index`.
+    pub(crate) fn show_media_album(
+        &self,
+        source_widget: &impl IsA<gtk::Widget>,
+        room: &Room,
+        items: Vec<(Option<OwnedEventId>, VisualMediaMessage)>,
+        index: usize,
+    ) {
+        self.imp()
+            .show_media_album(source_widget.upcast_ref(), room, items, index);
     }
 
     /// Show the given `MatrixIdUri`.

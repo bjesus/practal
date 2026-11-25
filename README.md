@@ -19,6 +19,7 @@ Compared to upstream Fractal, Practal adds:
 
 * **Beeper Bridge Support**: Automatic Beeper bridge detection, bridge-aware room handling, and optional hiding of bridge bots from computed room names.
 * **FLOE Encrypted Media (MSC4571)**: Decrypts FLOE-encrypted (`com.beeper.floe.v1` / `v3`) attachments used by Beeper bridges and displays placeholders instead of silently dropping unparseable messages.
+* **Media Albums**: Consecutive photos and videos from the same sender are grouped into a responsive gallery grid with Previous/Next and Left/Right arrow navigation in the media viewer.
 * **Pinned Favorites & Tabbed Sidebar**: Pin favorite rooms as a compact icon bar at the top of the sidebar (with unread indicator rings), and switch between **Rooms** and **Low Priority** via bottom tabs with preserved scroll position.
 * **In-Chat Search**: Search messages within a room (`Ctrl+F`) with live background history pagination and next/previous match navigation.
 * **Chat Bubbles**: Optional chat bubble layout (your messages on the right, others on the left inside tinted bubbles).

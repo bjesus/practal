@@ -103,6 +103,12 @@ mod imp {
         /// The texture of the current image preview, if any.
         #[property(get = Self::texture)]
         texture: PhantomData<Option<gdk::Texture>>,
+        /// Fixed `(width, height)` when displayed as a tile inside a media
+        /// album grid.
+        tile_dimensions: Cell<Option<(i32, i32)>>,
+        /// Album context `(items, index)` when this tile belongs to a media
+        /// album, used to enable previous/next navigation in the media viewer.
+        album_context: RefCell<Option<(Vec<(Option<ruma::OwnedEventId>, VisualMediaMessage)>, usize)>>,
     }
 
     #[glib::object_subclass]
@@ -140,6 +146,15 @@ mod imp {
 
     impl WidgetImpl for MessageVisualMedia {
         fn measure(&self, orientation: gtk::Orientation, for_size: i32) -> (i32, i32, i32, i32) {
+            if let Some((width, height)) = self.tile_dimensions.get() {
+                let size = if orientation == gtk::Orientation::Horizontal {
+                    width
+                } else {
+                    height
+                };
+                return (size, size, -1, -1);
+            }
+
             // Get the minimum size wanted by the overlay.
             let (overlay_min, ..) = self.overlay.measure(orientation, for_size);
 
@@ -420,7 +435,12 @@ mod imp {
                 let placeholder = if let Some(placeholder) = placeholder {
                     placeholder
                 } else {
-                    let placeholder = gtk::Picture::new();
+                    let content_fit = if self.tile_dimensions.get().is_some() {
+                        gtk::ContentFit::Cover
+                    } else {
+                        gtk::ContentFit::ScaleDown
+                    };
+                    let placeholder = gtk::Picture::builder().content_fit(content_fit).build();
                     self.placeholder.replace(Some(placeholder.clone()));
                     self.stack.add_named(&placeholder, Some(PLACEHOLDER_PAGE));
                     self.overlay.add_css_class("has-placeholder");
@@ -701,8 +721,13 @@ mod imp {
                 child.set_paintable(Some(&paintable));
                 self.obj().notify_texture();
             } else {
+                let content_fit = if self.tile_dimensions.get().is_some() {
+                    gtk::ContentFit::Cover
+                } else {
+                    gtk::ContentFit::ScaleDown
+                };
                 let child = gtk::Picture::builder()
-                    .content_fit(gtk::ContentFit::ScaleDown)
+                    .content_fit(content_fit)
                     .build();
                 child.set_paintable(Some(&paintable));
                 self.set_media_child(Some(&child));
@@ -835,9 +860,54 @@ mod imp {
 
             let event_id = self.cache_key.borrow().event_id.clone();
 
-            window
-                .session_view()
-                .show_media_viewer(&*self.obj(), &room, media_message, event_id);
+            if let Some((items, index)) = self.album_context.borrow().clone() {
+                window
+                    .session_view()
+                    .show_media_album(&*self.obj(), &room, items, index);
+            } else {
+                window
+                    .session_view()
+                    .show_media_viewer(&*self.obj(), &room, media_message, event_id);
+            }
+        }
+        /// Configure fixed tile dimensions for displaying this media inside an
+        /// album grid (using `ContentFit::Cover` for edge-to-edge cropping).
+        pub(super) fn set_tile_dimensions(&self, dimensions: Option<(i32, i32)>) {
+            if self.tile_dimensions.get() == dimensions {
+                return;
+            }
+            self.tile_dimensions.set(dimensions);
+
+            let obj = self.obj();
+            let content_fit = if dimensions.is_some() {
+                obj.set_halign(gtk::Align::Fill);
+                obj.set_valign(gtk::Align::Fill);
+                obj.add_css_class("album-tile");
+                gtk::ContentFit::Cover
+            } else {
+                obj.set_halign(gtk::Align::Start);
+                obj.set_valign(gtk::Align::Fill);
+                obj.remove_css_class("album-tile");
+                gtk::ContentFit::ScaleDown
+            };
+
+            if let Some(picture) = self.media_child::<gtk::Picture>() {
+                picture.set_content_fit(content_fit);
+            }
+            if let Some(placeholder) = self.placeholder.borrow().as_ref() {
+                placeholder.set_content_fit(content_fit);
+            }
+
+            obj.queue_resize();
+        }
+
+        /// Set the album items and this tile's index.
+        pub(super) fn set_album_context(
+            &self,
+            items: Vec<(Option<ruma::OwnedEventId>, VisualMediaMessage)>,
+            index: usize,
+        ) {
+            self.album_context.replace(Some((items, index)));
         }
     }
 }
@@ -865,6 +935,22 @@ impl MessageVisualMedia {
     ) {
         self.imp()
             .set_media_message(media_message, room, format, cache_key);
+    }
+
+    /// Configure fixed tile dimensions for displaying this media inside an
+    /// album grid (using `ContentFit::Cover` for edge-to-edge cropping).
+    pub(crate) fn set_tile_dimensions(&self, dimensions: Option<(i32, i32)>) {
+        self.imp().set_tile_dimensions(dimensions);
+    }
+
+    /// Set the album items and this tile's index so clicking opens the media
+    /// viewer with previous/next album navigation.
+    pub(crate) fn set_album_context(
+        &self,
+        items: Vec<(Option<ruma::OwnedEventId>, VisualMediaMessage)>,
+        index: usize,
+    ) {
+        self.imp().set_album_context(items, index);
     }
 }
 

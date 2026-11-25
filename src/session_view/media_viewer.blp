@@ -117,17 +117,59 @@ template $MediaViewer: Gtk.Widget {
       }
     }
 
-    content: $ScaleRevealer revealer {
-      child: $MediaContentViewer media {
-        autoplay: true;
-        has-context-menu: true;
+    content: Gtk.Overlay {
+      $ScaleRevealer revealer {
+        child: $MediaContentViewer media {
+          autoplay: true;
+          has-context-menu: true;
 
-        popover: Gtk.PopoverMenu {
-          has-arrow: false;
-          halign: start;
-          menu-model: media-context-menu-model;
+          popover: Gtk.PopoverMenu {
+            has-arrow: false;
+            halign: start;
+            menu-model: media-context-menu-model;
+          };
         };
-      };
+      }
+
+      [overlay]
+      Gtk.Button prev_button {
+        visible: false;
+        halign: start;
+        valign: center;
+        margin-start: 16;
+        icon-name: "go-previous-symbolic";
+        action-name: "media-viewer.previous";
+        tooltip-text: _("Previous");
+
+        styles [
+          "osd",
+          "circular",
+        ]
+
+        accessibility {
+          label: _("Previous");
+        }
+      }
+
+      [overlay]
+      Gtk.Button next_button {
+        visible: false;
+        halign: end;
+        valign: center;
+        margin-end: 16;
+        icon-name: "go-next-symbolic";
+        action-name: "media-viewer.next";
+        tooltip-text: _("Next");
+
+        styles [
+          "osd",
+          "circular",
+        ]
+
+        accessibility {
+          label: _("Next");
+        }
+      }
     };
   }
 

@@ -32,7 +32,7 @@ use self::{
     event_actions::*,
     event_row::EventRow,
     event_timestamp::EventTimestamp,
-    message_row::MessageRow,
+    message_row::{MediaGroupRow, MessageRow},
     message_toolbar::MessageToolbar,
     read_receipts_list::ReadReceiptsList,
     state::{StateGroupRow, StateRow},
@@ -644,11 +644,14 @@ mod imp {
         fn grouping_model(&self) -> &GroupingListModel {
             self.grouping_model.get_or_init(|| {
                 GroupingListModel::new(|lhs, rhs| {
-                    lhs.downcast_ref::<Event>()
-                        .is_some_and(Event::is_state_group_event)
-                        && rhs
-                            .downcast_ref::<Event>()
-                            .is_some_and(Event::is_state_group_event)
+                    let (Some(lhs), Some(rhs)) =
+                        (lhs.downcast_ref::<Event>(), rhs.downcast_ref::<Event>())
+                    else {
+                        return false;
+                    };
+
+                    (lhs.is_state_group_event() && rhs.is_state_group_event())
+                        || lhs.can_group_as_media_with(rhs)
                 })
             })
         }
@@ -667,8 +670,18 @@ mod imp {
             } else if let Some(virtual_item) = item.downcast_ref::<VirtualItem>() {
                 set_virtual_item_child(list_item, virtual_item);
             } else if let Some(group) = item.downcast_ref::<GroupingListGroup>() {
-                let child = list_item.child_or_default::<StateGroupRow>();
-                child.set_group(Some(group.clone()));
+                let is_media_group = group
+                    .item(0)
+                    .and_downcast::<Event>()
+                    .is_some_and(|event| event.is_media_group_event());
+
+                if is_media_group {
+                    let child = list_item.child_or_default::<MediaGroupRow>();
+                    child.set_group(Some(group.clone()));
+                } else {
+                    let child = list_item.child_or_default::<StateGroupRow>();
+                    child.set_group(Some(group.clone()));
+                }
             } else {
                 error!("Could not build widget for unsupported room history item: {item:?}");
             }

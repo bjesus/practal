@@ -681,6 +681,41 @@ impl Event {
         }
     }
 
+    /// Whether this is an image or video message eligible for album grouping.
+    pub(crate) fn is_media_group_event(&self) -> bool {
+        if self.reply_to_id().is_some() {
+            return false;
+        }
+
+        matches!(
+            self.media_message(),
+            Some(MediaMessage::Image(_) | MediaMessage::Video(_))
+        )
+    }
+
+    /// Whether this media event can be grouped with the immediately following
+    /// event into an album.
+    pub(crate) fn can_group_as_media_with(&self, next: &Self) -> bool {
+        /// Maximum time difference between consecutive media events to group
+        /// them into an album (2 minutes).
+        const MAX_MEDIA_GROUP_INTERVAL_MS: u64 = 2 * 60 * 1000;
+
+        if !self.is_media_group_event() || !next.is_media_group_event() {
+            return false;
+        }
+        if self.sender_id() != next.sender_id() {
+            return false;
+        }
+        // End the album after a captioned item so captions remain unambiguous.
+        if self.media_message().and_then(|m| m.caption()).is_some() {
+            return false;
+        }
+
+        let lhs_ts = u64::from(self.origin_server_ts().get());
+        let rhs_ts = u64::from(next.origin_server_ts().get());
+        lhs_ts.abs_diff(rhs_ts) <= MAX_MEDIA_GROUP_INTERVAL_MS
+    }
+
     /// Whether this is the `m.room.create` event of the room.
     pub(crate) fn is_room_create(&self) -> bool {
         match self.item().content() {
