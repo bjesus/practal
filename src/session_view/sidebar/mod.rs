@@ -87,6 +87,10 @@ mod imp {
         /// The currently selected room, if any.
         #[property(get, set = Self::set_selected_room, explicit_notify, nullable)]
         selected_room: glib::WeakRef<Room>,
+        /// Whether to display `1..=9` quick-switch shortcut badges (while `Alt`
+        /// is held).
+        #[property(get, set = Self::set_show_shortcut_badges, explicit_notify)]
+        show_shortcut_badges: Cell<bool>,
         session_handler: RefCell<Option<glib::SignalHandlerId>>,
         settings_handler: RefCell<Option<glib::SignalHandlerId>>,
         security_handlers: RefCell<Vec<glib::SignalHandlerId>>,
@@ -322,6 +326,55 @@ mod imp {
             self.update_security_banner();
             self.update_pinned_favorites();
             self.obj().notify_user();
+        }
+
+        /// Set whether to display `1..=9` quick-switch shortcut badges.
+        fn set_show_shortcut_badges(&self, show: bool) {
+            if self.show_shortcut_badges.get() == show {
+                return;
+            }
+            self.show_shortcut_badges.set(show);
+            self.obj().notify_show_shortcut_badges();
+        }
+
+        /// Return up to the first 9 visible rooms in sidebar order (pinned
+        /// favorites first, then the room list).
+        pub(super) fn quick_switch_rooms(&self) -> Vec<Room> {
+            let mut rooms = Vec::with_capacity(9);
+
+            if self.pinned_favorites_box.is_visible()
+                && let Some(fav_section) = self.favorite_section.upgrade()
+            {
+                for item in fav_section.iter::<glib::Object>() {
+                    let Ok(item) = item else {
+                        break;
+                    };
+                    if let Ok(room) = item.downcast::<Room>() {
+                        rooms.push(room);
+                        if rooms.len() >= 9 {
+                            return rooms;
+                        }
+                    }
+                }
+            }
+
+            if let Some(model) = self.listview.model() {
+                for item in model.iter::<glib::Object>() {
+                    let Ok(item) = item else {
+                        break;
+                    };
+                    if let Ok(room) = item.downcast::<Room>()
+                        && !rooms.iter().any(|r| r.room_id() == room.room_id())
+                    {
+                        rooms.push(room);
+                        if rooms.len() >= 9 {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            rooms
         }
 
         /// Set the currently selected room.
@@ -602,12 +655,51 @@ mod imp {
             });
             room.connect_is_read_notify(move |_| update_badge());
 
+            let shortcut_badge = gtk::Label::builder()
+                .halign(gtk::Align::Start)
+                .valign(gtk::Align::End)
+                .css_classes(["shortcut-badge"])
+                .visible(false)
+                .build();
+
+            let update_shortcut_badge = clone!(
+                #[weak]
+                obj,
+                #[weak]
+                room,
+                #[weak]
+                shortcut_badge,
+                move || {
+                    if let Some(num) = obj.shortcut_number_for_room(&room) {
+                        shortcut_badge.set_label(&num.to_string());
+                        shortcut_badge.set_visible(true);
+                    } else {
+                        shortcut_badge.set_visible(false);
+                    }
+                }
+            );
+            update_shortcut_badge();
+            let shortcut_handler =
+                std::cell::Cell::new(Some(obj.connect_show_shortcut_badges_notify(move |_| {
+                    update_shortcut_badge();
+                })));
+            button.connect_destroy(clone!(
+                #[weak]
+                obj,
+                move |_| {
+                    if let Some(handler) = shortcut_handler.take() {
+                        obj.disconnect(handler);
+                    }
+                }
+            ));
+
             let overlay = gtk::Overlay::builder()
                 .halign(gtk::Align::Center)
                 .valign(gtk::Align::Center)
                 .child(&avatar)
                 .build();
             overlay.add_overlay(&badge);
+            overlay.add_overlay(&shortcut_badge);
             button.set_child(Some(&overlay));
 
             button.connect_clicked(clone!(
@@ -924,6 +1016,31 @@ impl Sidebar {
             RoomCategory::LowPriority => imp.room_tabs_stack.set_visible_child_name("low-priority"),
             _ => {}
         }
+    }
+
+    /// Switch to the `index`-th (`0..9`) chat in the sidebar (including pinned
+    /// favorites at the top).
+    pub(crate) fn select_quick_switch_room(&self, index: usize) {
+        if let Some(room) = self.imp().quick_switch_rooms().get(index) {
+            let _ = self.activate_action(
+                "session.show-room",
+                Some(&room.room_id().as_str().to_variant()),
+            );
+        }
+    }
+
+    /// Return the 1-based shortcut number (`1..=9`) for `room` if shortcut
+    /// badges are currently shown and `room` is among the first 9 sidebar
+    /// chats.
+    pub(crate) fn shortcut_number_for_room(&self, room: &Room) -> Option<usize> {
+        if !self.show_shortcut_badges() {
+            return None;
+        }
+        self.imp()
+            .quick_switch_rooms()
+            .iter()
+            .position(|r| r.room_id() == room.room_id())
+            .map(|idx| idx + 1)
     }
 
     /// Connect to the signal emitted when the drop source category changed.

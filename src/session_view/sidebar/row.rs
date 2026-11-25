@@ -138,13 +138,35 @@ mod imp {
                     }
                 ));
 
+            let show_shortcut_badges_handler = sidebar.connect_show_shortcut_badges_notify(clone!(
+                #[weak(rename_to = imp)]
+                self,
+                move |_| {
+                    imp.update_shortcut_badge();
+                }
+            ));
+
             self.sidebar.set(
                 sidebar,
                 vec![
                     drop_source_category_handler,
                     drop_active_target_category_handler,
+                    show_shortcut_badges_handler,
                 ],
             );
+        }
+
+        /// Update the quick-switch shortcut badge on the child `SidebarRoomRow`,
+        /// if any.
+        fn update_shortcut_badge(&self) {
+            let Some(room_row) = self.obj().child().and_downcast::<SidebarRoomRow>() else {
+                return;
+            };
+            let number = self
+                .room()
+                .zip(self.sidebar.obj())
+                .and_then(|(room, sidebar)| sidebar.shortcut_number_for_room(&room));
+            room_row.set_shortcut_number(number);
         }
 
         /// Set the item of this row.
@@ -213,6 +235,7 @@ mod imp {
                         .replace(Some(room_is_read_handler));
 
                     child.set_room(Some(room.clone()));
+                    self.update_shortcut_badge();
                 } else if let Some(icon_item) = item.downcast_ref::<SidebarIconItem>() {
                     let child = obj.child_or_default::<SidebarIconItemRow>();
                     child.set_icon_item(Some(icon_item.clone()));

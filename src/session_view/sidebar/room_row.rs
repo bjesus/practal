@@ -23,6 +23,8 @@ mod imp {
         #[template_child]
         avatar: TemplateChild<Avatar>,
         #[template_child]
+        pub(super) shortcut_badge: TemplateChild<gtk::Label>,
+        #[template_child]
         display_name_box: TemplateChild<gtk::Box>,
         #[template_child]
         room_icon: TemplateChild<gtk::Image>,
@@ -329,6 +331,17 @@ glib::wrapper! {
 impl SidebarRoomRow {
     pub fn new() -> Self {
         glib::Object::new()
+    }
+    /// Set the quick-switch shortcut number (`1..=9`) badge, or `None` to
+    /// hide it.
+    pub(crate) fn set_shortcut_number(&self, number: Option<usize>) {
+        let badge = &self.imp().shortcut_badge;
+        if let Some(n) = number {
+            badge.set_label(&n.to_string());
+            badge.set_visible(true);
+        } else {
+            badge.set_visible(false);
+        }
     }
 }
 

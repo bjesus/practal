@@ -207,6 +207,75 @@ mod imp {
             self.parent_constructed();
             let obj = self.obj();
 
+            // Alt+1..9 quick chat switching + hold Alt to preview shortcut badges.
+            let key_controller = gtk::EventControllerKey::new();
+            key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
+            key_controller.connect_key_pressed(clone!(
+                #[weak(rename_to = imp)]
+                self,
+                #[upgrade_or]
+                glib::Propagation::Proceed,
+                move |_, key, _, state| {
+                    if matches!(key, gdk::Key::Alt_L | gdk::Key::Alt_R) {
+                        imp.sidebar.set_show_shortcut_badges(true);
+                        return glib::Propagation::Proceed;
+                    }
+
+                    if state.contains(gdk::ModifierType::ALT_MASK)
+                        && !state
+                            .intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::SUPER_MASK)
+                    {
+                        let digit = match key {
+                            gdk::Key::_1 | gdk::Key::KP_1 => Some(0),
+                            gdk::Key::_2 | gdk::Key::KP_2 => Some(1),
+                            gdk::Key::_3 | gdk::Key::KP_3 => Some(2),
+                            gdk::Key::_4 | gdk::Key::KP_4 => Some(3),
+                            gdk::Key::_5 | gdk::Key::KP_5 => Some(4),
+                            gdk::Key::_6 | gdk::Key::KP_6 => Some(5),
+                            gdk::Key::_7 | gdk::Key::KP_7 => Some(6),
+                            gdk::Key::_8 | gdk::Key::KP_8 => Some(7),
+                            gdk::Key::_9 | gdk::Key::KP_9 => Some(8),
+                            _ => None,
+                        };
+                        if let Some(index) = digit {
+                            imp.sidebar.select_quick_switch_room(index);
+                            return glib::Propagation::Stop;
+                        }
+                    }
+
+                    glib::Propagation::Proceed
+                }
+            ));
+            key_controller.connect_key_released(clone!(
+                #[weak(rename_to = imp)]
+                self,
+                move |_, key, _, _| {
+                    if matches!(key, gdk::Key::Alt_L | gdk::Key::Alt_R) {
+                        imp.sidebar.set_show_shortcut_badges(false);
+                    }
+                }
+            ));
+            obj.add_controller(key_controller);
+
+            // Hide shortcut badges if the window loses focus (e.g. Alt+Tab).
+            obj.connect_root_notify(clone!(
+                #[weak(rename_to = imp)]
+                self,
+                move |obj| {
+                    if let Some(window) = obj.root().and_downcast::<gtk::Window>() {
+                        window.connect_is_active_notify(clone!(
+                            #[weak]
+                            imp,
+                            move |win| {
+                                if !win.is_active() {
+                                    imp.sidebar.set_show_shortcut_badges(false);
+                                }
+                            }
+                        ));
+                    }
+                }
+            ));
+
             self.content.connect_item_notify(clone!(
                 #[weak(rename_to = imp)]
                 self,
