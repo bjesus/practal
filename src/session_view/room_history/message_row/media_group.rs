@@ -1,20 +1,196 @@
 use adw::{prelude::*, subclass::prelude::*};
 use gettextrs::gettext;
-use gtk::{glib, glib::clone};
+use gtk::{gdk, gio, glib, glib::clone};
 
 use super::{
-    ContentFormat, EventTimestamp, MessageSenderName, ReadReceiptsList, text::MessageText,
-    visual_media::MessageVisualMedia,
+    ContentFormat, EventTimestamp, MessageReactionList, MessageSenderName, ReadReceiptsList,
+    text::MessageText, visual_media::MessageVisualMedia,
 };
 use crate::{
-    components::{Avatar, UserProfileDialog},
+    components::{Avatar, ContextMenuBin, UserProfileDialog},
     prelude::*,
     session::{Event, EventHeaderState, Member, SessionSettings},
+    session_view::room_history::{EventActionsGroup, RoomHistory},
     utils::{
         BoundObject, GroupingListGroup,
         matrix::{MediaMessage, MessageCacheKey, VisualMediaMessage},
     },
 };
+
+mod tile_imp {
+    use std::{cell::RefCell, rc::Rc};
+
+    use super::*;
+
+    #[derive(Debug)]
+    pub struct MediaAlbumTile {
+        pub(super) room_history: glib::WeakRef<RoomHistory>,
+        pub(super) event: RefCell<Option<Event>>,
+        pub(super) visual_media: MessageVisualMedia,
+        pub(super) reactions: MessageReactionList,
+        pub(super) action_group: RefCell<Option<gio::SimpleActionGroup>>,
+    }
+
+    impl Default for MediaAlbumTile {
+        fn default() -> Self {
+            Self {
+                room_history: glib::WeakRef::new(),
+                event: RefCell::default(),
+                visual_media: MessageVisualMedia::default(),
+                reactions: glib::Object::new(),
+                action_group: RefCell::default(),
+            }
+        }
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for MediaAlbumTile {
+        const NAME: &'static str = "ContentMediaAlbumTile";
+        type Type = super::MediaAlbumTile;
+        type ParentType = ContextMenuBin;
+    }
+
+    impl ObjectImpl for MediaAlbumTile {
+        fn constructed(&self) {
+            self.parent_constructed();
+
+            let overlay = gtk::Overlay::new();
+            overlay.set_child(Some(&self.visual_media));
+
+            self.reactions.set_halign(gtk::Align::Start);
+            self.reactions.set_valign(gtk::Align::End);
+            self.reactions.set_margin_start(4);
+            self.reactions.set_margin_end(4);
+            self.reactions.set_margin_bottom(4);
+            self.reactions.add_css_class("album-tile-reactions");
+            overlay.add_overlay(&self.reactions);
+
+            self.obj().set_child(Some(&overlay));
+
+            self.visual_media.connect_texture_notify(clone!(
+                #[weak(rename_to = imp)]
+                self,
+                move |media| {
+                    if let Some(copy_image_action) = imp
+                        .action_group
+                        .borrow()
+                        .as_ref()
+                        .and_then(|group| group.lookup_action("copy-image"))
+                        .and_downcast::<gio::SimpleAction>()
+                    {
+                        copy_image_action.set_enabled(media.texture().is_some());
+                    }
+                }
+            ));
+        }
+    }
+
+    impl WidgetImpl for MediaAlbumTile {}
+
+    impl ContextMenuBinImpl for MediaAlbumTile {
+        fn menu_opened(&self) {
+            let Some(room_history) = self.room_history.upgrade() else {
+                return;
+            };
+
+            let obj = self.obj();
+            let Some(event) = self.event.borrow().clone() else {
+                obj.set_popover(None);
+                return;
+            };
+            if self.action_group.borrow().is_none() {
+                obj.set_popover(None);
+                return;
+            }
+
+            let menu = room_history.event_context_menu();
+
+            let closed_handler_cell: Rc<RefCell<Option<glib::SignalHandlerId>>> = Rc::default();
+            let closed_handler = menu.popover.connect_closed(clone!(
+                #[weak]
+                room_history,
+                #[strong]
+                closed_handler_cell,
+                move |popover| {
+                    room_history.enable_sticky_mode(true);
+
+                    if let Some(handler) = closed_handler_cell.take() {
+                        popover.disconnect(handler);
+                    }
+                }
+            ));
+            closed_handler_cell.replace(Some(closed_handler));
+
+            if event.can_be_reacted_to() {
+                menu.add_quick_reaction_chooser(event.reactions());
+            } else {
+                menu.remove_quick_reaction_chooser();
+            }
+
+            room_history.enable_sticky_mode(false);
+            obj.set_popover(Some(menu.popover.clone()));
+        }
+    }
+
+    impl EventActionsGroup for MediaAlbumTile {
+        fn event(&self) -> Option<Event> {
+            self.event.borrow().clone()
+        }
+
+        fn texture(&self) -> Option<gdk::Texture> {
+            self.visual_media.texture()
+        }
+
+        fn popover(&self) -> Option<gtk::PopoverMenu> {
+            self.obj().popover()
+        }
+    }
+
+    impl MediaAlbumTile {
+        pub(super) fn update_actions(&self) {
+            let obj = self.obj();
+            let action_group = self.event_actions_group();
+            let has_context_menu = action_group.is_some();
+
+            if let Some(copy_image_action) = action_group
+                .as_ref()
+                .and_then(|group| group.lookup_action("copy-image"))
+                .and_downcast::<gio::SimpleAction>()
+            {
+                copy_image_action.set_enabled(self.texture().is_some());
+            }
+
+            obj.insert_action_group("event", action_group.as_ref());
+            self.action_group.replace(action_group);
+            obj.set_has_context_menu(has_context_menu);
+        }
+    }
+}
+
+glib::wrapper! {
+    /// A single media tile inside a `MediaGroupRow` with its own event context
+    /// menu (reactions, reply, copy/save, properties) and reaction overlay.
+    pub struct MediaAlbumTile(ObjectSubclass<tile_imp::MediaAlbumTile>)
+        @extends gtk::Widget, ContextMenuBin,
+        @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
+}
+
+impl MediaAlbumTile {
+    fn new(room_history: Option<&RoomHistory>, event: &Event) -> Self {
+        let obj: Self = glib::Object::new();
+        let imp = obj.imp();
+        imp.room_history.set(room_history);
+        imp.event.replace(Some(event.clone()));
+        imp.reactions
+            .set_reaction_list(&event.room().get_or_create_members(), &event.reactions());
+        imp.update_actions();
+        obj
+    }
+
+    fn visual_media(&self) -> &MessageVisualMedia {
+        &self.imp().visual_media
+    }
+}
 
 mod imp {
     use std::cell::RefCell;
@@ -24,6 +200,9 @@ mod imp {
     #[derive(Debug, glib::Properties)]
     #[properties(wrapper_type = super::MediaGroupRow)]
     pub struct MediaGroupRow {
+        /// The ancestor room history of this row.
+        #[property(get, set, construct_only, nullable)]
+        room_history: glib::WeakRef<RoomHistory>,
         /// The group of media events presented by this row.
         #[property(get, set = Self::set_group, explicit_notify, nullable)]
         group: BoundObject<GroupingListGroup>,
@@ -45,6 +224,7 @@ mod imp {
     impl Default for MediaGroupRow {
         fn default() -> Self {
             Self {
+                room_history: glib::WeakRef::new(),
                 group: BoundObject::default(),
                 grid: gtk::Grid::default(),
                 avatar_button: gtk::Button::default(),
@@ -268,11 +448,13 @@ mod imp {
                 .map(|(event, msg)| (event.event_id(), msg.clone()))
                 .collect();
 
+            let room_history = self.room_history.upgrade();
             let count = visual_items.len();
             for (index, (event, visual_media_msg)) in visual_items.into_iter().enumerate() {
                 let (col, row, col_span, row_span, dims) = tile_layout(index, count);
 
-                let tile = MessageVisualMedia::new();
+                let album_tile = MediaAlbumTile::new(room_history.as_ref(), &event);
+                let tile = album_tile.visual_media();
                 tile.set_tile_dimensions(Some(dims));
                 tile.set_album_context(album_context.clone(), index);
                 tile.set_media_message(
@@ -287,7 +469,7 @@ mod imp {
                 );
 
                 self.album_grid
-                    .attach(&tile, col, row, col_span, row_span);
+                    .attach(&album_tile, col, row, col_span, row_span);
             }
 
             // Show caption below the grid if the last item has one.
@@ -427,14 +609,10 @@ glib::wrapper! {
 }
 
 impl MediaGroupRow {
-    /// Construct a new empty `MediaGroupRow`.
-    pub fn new() -> Self {
-        glib::Object::new()
-    }
-}
-
-impl Default for MediaGroupRow {
-    fn default() -> Self {
-        Self::new()
+    /// Construct a new empty `MediaGroupRow` for the given `RoomHistory`.
+    pub fn new(room_history: &RoomHistory) -> Self {
+        glib::Object::builder()
+            .property("room-history", room_history)
+            .build()
     }
 }

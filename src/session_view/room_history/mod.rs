@@ -676,7 +676,8 @@ mod imp {
                     .is_some_and(|event| event.is_media_group_event());
 
                 if is_media_group {
-                    let child = list_item.child_or_default::<MediaGroupRow>();
+                    let child = list_item
+                        .child_or_else::<MediaGroupRow>(|| MediaGroupRow::new(&self.obj()));
                     child.set_group(Some(group.clone()));
                 } else {
                     let child = list_item.child_or_default::<StateGroupRow>();

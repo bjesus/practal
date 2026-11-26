@@ -1,6 +1,6 @@
 [package]
 name = "practal"
-version = "14.3.6"
+version = "14.3.7"
 authors = ["Julian Sparber <julian@sparber.net>"]
 license = "GPL-3.0-or-later"
 edition = "2024"
