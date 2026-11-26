@@ -1,7 +1,7 @@
 project(
     'practal',
     'rust',
-    version: '14.3.7',
+    version: '14.3.8',
     license: 'GPL-3.0-or-later',
     meson_version: '>= 1.4',
 )

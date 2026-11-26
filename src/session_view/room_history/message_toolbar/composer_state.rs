@@ -901,10 +901,23 @@ fn mirror_menu_with_languages(
         while let Some((link_name, linked)) = link_iter.next() {
             if link_name == gio::MENU_LINK_SUBMENU && menu_contains_language_action(&linked) {
                 item.set_submenu(Some(languages_menu));
-            } else {
+            } else if menu_contains_language_action(&linked) {
                 let mirrored_child = gio::Menu::new();
                 mirror_menu_with_languages(&linked, &mirrored_child, languages_menu);
+                let languages_menu = languages_menu.clone();
+                linked.connect_items_changed(clone!(
+                    #[weak]
+                    mirrored_child,
+                    move |menu, _, _, _| {
+                        mirror_menu_with_languages(menu, &mirrored_child, &languages_menu);
+                    }
+                ));
                 item.set_link(link_name.as_str(), Some(&mirrored_child));
+            } else {
+                // Keep libspelling's live menu models (such as the dynamic
+                // spelling corrections section) directly so suggestions update
+                // when right-clicking a misspelled word.
+                item.set_link(link_name.as_str(), Some(&linked));
             }
         }
 

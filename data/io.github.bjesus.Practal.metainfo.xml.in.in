@@ -62,6 +62,11 @@
   </content_rating>
 
   <releases>@development-release@
+    <release version="14.3.8" type="stable" date="2026-11-26">
+      <description>
+        <p>Fix right-click spellcheck suggestions not appearing in the message composer.</p>
+      </description>
+    </release>
     <release version="14.3.7" type="stable" date="2026-11-26">
       <description>
         <p>Support per-image right-click context menus (emoji reactions, reply, copy/save, View Source/Properties) and reaction overlays on individual tiles inside media albums.</p>
