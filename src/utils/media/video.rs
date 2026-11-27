@@ -4,7 +4,7 @@ use gst::prelude::*;
 use gst_video::prelude::*;
 use gtk::{gdk, gio, glib, glib::clone, prelude::*};
 use matrix_sdk::attachment::{BaseVideoInfo, Thumbnail};
-use tracing::{error, warn};
+use tracing::warn;
 
 use super::{
     image::{Blurhash, TextureThumbnailer},
@@ -48,16 +48,6 @@ async fn generate_video_thumbnail_and_blurhash(
     file: &gio::File,
     widget: &gtk::Widget,
 ) -> Option<(Thumbnail, Blurhash)> {
-    let Some(renderer) = widget
-        .root()
-        .and_downcast::<gtk::Window>()
-        .and_then(|w| w.renderer())
-    else {
-        // We cannot generate a thumbnail.
-        error!("Could not get GdkRenderer");
-        return None;
-    };
-
     let notifier = OneshotNotifier::new("generate_video_thumbnail_and_blurhash");
     let receiver = notifier.listen();
 
@@ -124,7 +114,7 @@ async fn generate_video_thumbnail_and_blurhash(
 
     let texture = texture?;
     let thumbnail_blurhash = TextureThumbnailer(texture)
-        .generate_thumbnail_and_blurhash(widget.scale_factor(), &renderer);
+        .generate_thumbnail_and_blurhash(widget.scale_factor());
 
     if thumbnail_blurhash.is_none() {
         warn!("Could not generate thumbnail and Blurhash from GdkTexture");

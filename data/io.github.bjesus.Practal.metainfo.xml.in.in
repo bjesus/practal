@@ -62,6 +62,16 @@
   </content_rating>
 
   <releases>@development-release@
+    <release version="14.3.9" type="stable" date="2026-11-27">
+      <description>
+        <p>Stability fixes for media handling:</p>
+        <ul>
+          <li>Use CPU CairoRenderer for image and video thumbnail downscaling to prevent EGL crashes on stale GPU contexts</li>
+          <li>Offload PNG encoding off the main thread when pasting images</li>
+          <li>Drop GstPlay off the main thread in VideoPlayer::dispose to prevent deadlocks when switching away from chats containing videos</li>
+        </ul>
+      </description>
+    </release>
     <release version="14.3.8" type="stable" date="2026-11-26">
       <description>
         <p>Fix right-click spellcheck suggestions not appearing in the message composer.</p>

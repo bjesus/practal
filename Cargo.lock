@@ -3639,7 +3639,7 @@ dependencies = [
 
 [[package]]
 name = "practal"
-version = "14.3.7"
+version = "14.3.8"
 dependencies = [
  "aperture",
  "as_variant",

@@ -35,6 +35,7 @@ mod imp {
         /// The duration of the video, if it is known.
         duration: Cell<Option<gst::ClockTime>>,
         bus_guard: OnceCell<gst::bus::BusWatchGuard>,
+        disposed: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -82,7 +83,21 @@ mod imp {
         }
 
         fn dispose(&self) {
-            self.player.message_bus().set_flushing(true);
+            if !self.disposed.replace(true) {
+                self.player.stop();
+                self.player.message_bus().set_flushing(true);
+
+                // Keep a reference across GTK's template disposal so the main
+                // thread never runs `gst_play_finalize()` (`g_thread_join`),
+                // which can deadlock against `gtk4paintablesink` dispatching to
+                // the GTK main context.
+                let player = self.player.get();
+                glib::idle_add_local_once(move || {
+                    crate::RUNTIME.spawn_blocking(move || {
+                        drop(player);
+                    });
+                });
+            }
         }
     }
 

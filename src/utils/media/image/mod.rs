@@ -253,18 +253,8 @@ impl ImageInfoLoader {
             return (info, None);
         }
 
-        let Some(renderer) = widget
-            .root()
-            .and_downcast::<gtk::Window>()
-            .and_then(|w| w.renderer())
-        else {
-            // We cannot generate a thumbnail.
-            error!("Could not get GdkRenderer");
-            return (info, None);
-        };
-
         let (thumbnail, blurhash) = frame
-            .generate_thumbnail_and_blurhash(scale_factor, &renderer)
+            .generate_thumbnail_and_blurhash(scale_factor)
             .unzip();
         info.blurhash = blurhash.map(|blurhash| blurhash.0);
 
@@ -347,7 +337,6 @@ impl Frame {
     fn generate_thumbnail_and_blurhash(
         self,
         scale_factor: i32,
-        renderer: &gsk::Renderer,
     ) -> Option<(Thumbnail, Blurhash)> {
         let texture = match self {
             Self::Glycin(frame) => frame.texture(),
@@ -355,7 +344,7 @@ impl Frame {
         };
 
         let thumbnail_blurhash =
-            TextureThumbnailer(texture).generate_thumbnail_and_blurhash(scale_factor, renderer);
+            TextureThumbnailer(texture).generate_thumbnail_and_blurhash(scale_factor);
 
         if thumbnail_blurhash.is_none() {
             warn!("Could not generate thumbnail and Blurhash from GdkTexture");
@@ -424,7 +413,6 @@ impl TextureThumbnailer {
     fn downscale_texture_if_needed(
         self,
         max_dimensions: FrameDimensions,
-        renderer: &gsk::Renderer,
     ) -> Option<gdk::Texture> {
         let dimensions = FrameDimensions::with_texture(&self.0)?;
 
@@ -438,7 +426,18 @@ impl TextureThumbnailer {
             );
             snapshot.append_texture(&self.0, &bounds);
             let node = snapshot.to_node()?;
-            renderer.render_texture(node, None)
+
+            // Use a CPU CairoRenderer so downscaling produces a MemoryTexture
+            // without touching the window's GL/EGL context (which can abort in
+            // libepoxy if the GPU context became invalid after sleep/reset).
+            let renderer = gsk::CairoRenderer::new();
+            if let Err(error) = renderer.realize(None::<&gdk::Surface>) {
+                error!("Could not realize CairoRenderer for thumbnailing: {error}");
+                return None;
+            }
+            let rendered = renderer.render_texture(node, Some(&bounds));
+            renderer.unrealize();
+            rendered
         } else {
             self.0
         };
@@ -497,18 +496,16 @@ impl TextureThumbnailer {
         }
     }
 
-    /// Generate the thumbnail for the given scale factor, with the given
-    /// `GskRenderer`, and a Blurhash.
+    /// Generate the thumbnail for the given scale factor and a Blurhash.
     ///
     /// We use the thumbnail to compute the blurhash, which should be less
     /// expensive than using the original texture.
     pub(super) fn generate_thumbnail_and_blurhash(
         self,
         scale_factor: i32,
-        renderer: &gsk::Renderer,
     ) -> Option<(Thumbnail, Blurhash)> {
         let max_thumbnail_dimensions = FrameDimensions::thumbnail_max_dimensions(scale_factor);
-        let thumbnail = self.downscale_texture_if_needed(max_thumbnail_dimensions, renderer)?;
+        let thumbnail = self.downscale_texture_if_needed(max_thumbnail_dimensions)?;
         let dimensions = FrameDimensions::with_texture(&thumbnail)?;
 
         let blurhash = Blurhash::with_texture(&thumbnail)?;

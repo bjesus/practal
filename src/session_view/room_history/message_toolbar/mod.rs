@@ -956,7 +956,14 @@ mod imp {
                 return;
             }
 
-            let bytes = image.save_to_png_bytes();
+            let image_for_png = image.clone();
+            let bytes = spawn_tokio!(async move {
+                tokio::task::spawn_blocking(move || image_for_png.save_to_png_bytes())
+                    .await
+                    .expect("PNG encoding task was not aborted")
+            })
+            .await
+            .expect("task was not aborted");
             let filesize = bytes.len().try_into().ok();
 
             let (mut base_info, thumbnail) = ImageInfoLoader::from(image)
