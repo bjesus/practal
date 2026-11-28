@@ -185,6 +185,29 @@ mod imp {
             // Tab auto-completion.
             self.completion.set_parent(&*self.message_entry);
 
+            // Move the caret to the right-clicked word (unless text is
+            // selected) before GtkTextView opens its context menu so
+            // libspelling populates spelling suggestions for that word.
+            let right_click = gtk::GestureClick::builder()
+                .button(gdk::BUTTON_SECONDARY)
+                .propagation_phase(gtk::PropagationPhase::Capture)
+                .build();
+            right_click.connect_pressed(move |gesture, _, x, y| {
+                let Some(view) = gesture.widget().and_downcast::<sourceview::View>() else {
+                    return;
+                };
+                let buffer = view.buffer();
+                if buffer.has_selection() {
+                    return;
+                }
+                let (bx, by) =
+                    view.window_to_buffer_coords(gtk::TextWindowType::Widget, x as i32, y as i32);
+                if let Some(iter) = view.iter_at_location(bx, by) {
+                    buffer.place_cursor(&iter);
+                }
+            });
+            self.message_entry.add_controller(right_click);
+
             // Location.
             let location = Location::new();
             obj.action_set_enabled("message-toolbar.send-location", location.is_available());

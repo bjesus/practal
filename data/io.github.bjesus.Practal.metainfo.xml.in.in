@@ -62,6 +62,11 @@
   </content_rating>
 
   <releases>@development-release@
+    <release version="14.3.10" type="stable" date="2026-11-28">
+      <description>
+        <p>Move the caret to the right-clicked word in the composer so spellcheck suggestions appear immediately without clicking inside the word first.</p>
+      </description>
+    </release>
     <release version="14.3.9" type="stable" date="2026-11-27">
       <description>
         <p>Stability fixes for media handling:</p>
